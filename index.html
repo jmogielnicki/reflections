@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reflections</title>
+  <link rel="stylesheet" href="/src/styles/menu.css">
+  <link rel="stylesheet" href="/src/styles/project.css">
+</head>
+<body>
+  <div id="menu-container">
+    <header>
+      <h1>Reflections</h1>
+      <p class="subtitle">Algorithmic art powered by your camera</p>
+    </header>
+    <div id="project-grid"></div>
+  </div>
+
+  <div id="project-container" style="display: none;">
+    <canvas id="output-canvas"></canvas>
+    <button id="back-btn" title="Back to menu">&larr;</button>
+    <div id="fps-counter"></div>
+    <div id="loading-overlay">
+      <div class="loading-text">Initializing...</div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
