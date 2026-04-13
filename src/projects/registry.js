@@ -27,4 +27,11 @@ export const projects = [
     mediapipe: ['segmentation', 'pose'],
     load: () => import('./implode-explode/index.js').then(m => m.default),
   },
+  {
+    id: 'liquid-rings',
+    name: 'Liquid Rings',
+    description: 'Concentric rings ripple and distort like ink in water, driven by Perlin noise.',
+    mediapipe: [],
+    load: () => import('./liquid-rings/index.js').then(m => m.default),
+  },
 ];
