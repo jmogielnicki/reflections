@@ -8,13 +8,6 @@ const WEATHER_TYPES = [
   { type: 'thunderstorm', dropsPerFrame: [30, 80], sizeRange: [8, 25], weight: 0.10 },
 ];
 
-const DROP_MAX_AGE_MIN = 3;
-const DROP_MAX_AGE_MAX = 8;
-const DROP_START_OPACITY_MIN = 0.5;
-const DROP_START_OPACITY_MAX = 0.85;
-const WEATHER_CHANGE_MIN = 3;
-const WEATHER_CHANGE_MAX = 10;
-
 function pickWeather() {
   const r = Math.random();
   let cumulative = 0;
@@ -30,6 +23,16 @@ export default {
   name: 'Watercolor Drops',
   description: 'Drops of color fall like rain, building a pointillist portrait that fades and reforms.',
   mediapipe: [],
+  params: {
+    maxDropSize:     { value: 25,   min: 5,   max: 60,  step: 1,    label: 'Max Drop Size' },
+    minDropSize:     { value: 2,    min: 1,   max: 20,  step: 1,    label: 'Min Drop Size' },
+    dropMaxAge:      { value: 8,    min: 2,   max: 20,  step: 0.5,  label: 'Drop Max Age (s)' },
+    dropMinAge:      { value: 3,    min: 1,   max: 10,  step: 0.5,  label: 'Drop Min Age (s)' },
+    dropOpacity:     { value: 0.85, min: 0.2, max: 1.0, step: 0.05, label: 'Drop Opacity' },
+    weatherChangeMin:{ value: 3,    min: 1,   max: 10,  step: 0.5,  label: 'Weather Min (s)' },
+    weatherChangeMax:{ value: 10,   min: 5,   max: 30,  step: 1,    label: 'Weather Max (s)' },
+    fadeSpeed:       { value: 0.003,min: 0.0, max: 0.02,step: 0.001,label: 'Background Fade' },
+  },
 
   init(ctx, canvas) {
     const accCanvas = new OffscreenCanvas(canvas.width, canvas.height);
@@ -43,11 +46,12 @@ export default {
       drops: [],
       weather: pickWeather(),
       weatherTimer: 0,
-      nextWeatherChange: randomRange(WEATHER_CHANGE_MIN, WEATHER_CHANGE_MAX),
+      nextWeatherChange: randomRange(3, 10),
     };
   },
 
   update(state, input, dt) {
+    const P = state.params;
     const { width, height } = input.canvas;
     const webcamDims = input.getWebcamDimensions();
 
@@ -56,13 +60,12 @@ export default {
     if (state.weatherTimer >= state.nextWeatherChange) {
       state.weather = pickWeather();
       state.weatherTimer = 0;
-      state.nextWeatherChange = randomRange(WEATHER_CHANGE_MIN, WEATHER_CHANGE_MAX);
+      state.nextWeatherChange = randomRange(P.weatherChangeMin, P.weatherChangeMax);
     }
 
     // Spawn new drops
     const pixels = input.getPixelData();
     const dropCount = randomInt(state.weather.dropsPerFrame[0], state.weather.dropsPerFrame[1]);
-    const [sizeMin, sizeMax] = state.weather.sizeRange;
 
     for (let i = 0; i < dropCount; i++) {
       const cx = randomRange(0, width);
@@ -78,11 +81,11 @@ export default {
       state.drops.push({
         x: cx,
         y: cy,
-        radius: randomRange(sizeMin, sizeMax),
+        radius: randomRange(P.minDropSize, P.maxDropSize),
         r, g, b,
-        startOpacity: randomRange(DROP_START_OPACITY_MIN, DROP_START_OPACITY_MAX),
+        startOpacity: randomRange(P.dropOpacity * 0.6, P.dropOpacity),
         age: 0,
-        maxAge: randomRange(DROP_MAX_AGE_MIN, DROP_MAX_AGE_MAX),
+        maxAge: randomRange(P.dropMinAge, P.dropMaxAge),
         drawn: false,
       });
     }
@@ -110,7 +113,7 @@ export default {
     }
 
     // Fade the accumulation canvas slightly toward white to clear old drops
-    accCtx.fillStyle = 'rgba(255, 255, 255, 0.003)';
+    accCtx.fillStyle = `rgba(255, 255, 255, ${state.params.fadeSpeed})`;
     accCtx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Draw new drops to accumulation canvas

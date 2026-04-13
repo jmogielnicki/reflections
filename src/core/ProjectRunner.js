@@ -53,14 +53,42 @@ export class ProjectRunner {
       await this.webcam.start();
     }
 
+    // Warn if project is missing params
+    if (!project.params) {
+      console.warn(`[Reflections] Project "${project.id}" is missing a params definition. All projects should declare debug params.`);
+    }
+
     // Initialize project
     const ctx = this.canvasManager.ctx;
     const canvas = this.canvasManager.canvas;
     this._projectState = project.init(ctx, canvas);
 
+    // Extract default param values into state.params
+    if (project.params) {
+      this._projectState.params = {};
+      for (const [key, desc] of Object.entries(project.params)) {
+        this._projectState.params[key] = desc.value;
+      }
+    }
+
     if (project.resize) {
       project.resize(this._projectState, canvas.width, canvas.height);
     }
+  }
+
+  /** Get the active project's param descriptors (for DebugPanel) */
+  getParamDescriptors() {
+    return this._project ? this._project.params : null;
+  }
+
+  /** Get the live state.params object (for DebugPanel to mutate) */
+  getStateParams() {
+    return this._projectState ? this._projectState.params : null;
+  }
+
+  /** Get the active project's name */
+  getProjectName() {
+    return this._project ? this._project.name : '';
   }
 
   start() {

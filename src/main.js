@@ -1,5 +1,6 @@
 import { projects } from './projects/registry.js';
 import { ProjectRunner } from './core/ProjectRunner.js';
+import { DebugPanel } from './core/DebugPanel.js';
 
 const menuContainer = document.getElementById('menu-container');
 const projectContainer = document.getElementById('project-container');
@@ -7,9 +8,11 @@ const projectGrid = document.getElementById('project-grid');
 const backBtn = document.getElementById('back-btn');
 const fpsCounter = document.getElementById('fps-counter');
 const loadingOverlay = document.getElementById('loading-overlay');
+const debugPanelEl = document.getElementById('debug-panel');
 
 let runner = null;
 let fpsInterval = null;
+const debugPanel = new DebugPanel(debugPanelEl);
 
 // Build menu
 function renderMenu() {
@@ -35,6 +38,7 @@ function showMenu() {
     clearInterval(fpsInterval);
     fpsInterval = null;
   }
+  debugPanel.hide();
   menuContainer.style.display = '';
   projectContainer.style.display = 'none';
   fpsCounter.textContent = '';
@@ -77,6 +81,13 @@ async function showProject(projectId) {
       fpsCounter.textContent = `${runner.fps} fps`;
     }, 500);
 
+    // Load debug panel
+    const descriptors = runner.getParamDescriptors();
+    const stateParams = runner.getStateParams();
+    if (descriptors && stateParams) {
+      debugPanel.load(runner.getProjectName(), descriptors, stateParams);
+    }
+
     loadingOverlay.classList.add('hidden');
   } catch (err) {
     console.error('Failed to load project:', err);
@@ -98,6 +109,12 @@ function handleRoute() {
 // Events
 backBtn.addEventListener('click', () => {
   window.location.hash = '';
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'd' || e.key === 'D') {
+    if (runner) debugPanel.toggle();
+  }
 });
 
 window.addEventListener('hashchange', handleRoute);

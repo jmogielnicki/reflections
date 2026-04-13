@@ -4,17 +4,8 @@ import { randomRange, lerp, clamp, dist } from '../../utils/math.js';
 import { noise2D } from '../../utils/noise.js';
 import { rgbString } from '../../utils/color.js';
 
-const PARTICLE_COUNT = 8000;
 const SAMPLE_STEP = 3;          // Downsample mask pixels
-const ATTRACTION_STRENGTH = 4;
-const SETTLE_THRESHOLD = 3;     // pixels
 const SETTLE_RATIO = 0.90;      // 90% settled → transition to HOLDING
-const HOLD_DURATION = 2.5;      // seconds
-const EXPLOSION_STRENGTH = 600;
-const GRAVITY = 150;
-const JITTER_AMOUNT = 1.5;
-const DAMPING = 0.96;
-const IMPLODE_DAMPING = 0.92;
 
 const PHASES = { WAITING: 0, IMPLODING: 1, HOLDING: 2, EXPLODING: 3 };
 
@@ -23,6 +14,17 @@ export default {
   name: 'Implode / Explode',
   description: 'Particles rush in from off-screen to form your silhouette, hold, then burst apart.',
   mediapipe: ['segmentation', 'pose'],
+  params: {
+    particleCount:      { value: 8000, min: 2000, max: 15000, step: 500,  label: 'Particle Count' },
+    attractionStrength: { value: 4,    min: 1,    max: 15,    step: 0.5,  label: 'Attraction Force' },
+    settleThreshold:    { value: 3,    min: 1,    max: 10,    step: 0.5,  label: 'Settle Threshold' },
+    holdDuration:       { value: 2.5,  min: 0.5,  max: 8,     step: 0.5,  label: 'Hold Duration (s)' },
+    explosionStrength:  { value: 600,  min: 100,  max: 2000,  step: 50,   label: 'Explosion Force' },
+    gravity:            { value: 150,  min: 0,    max: 500,   step: 10,   label: 'Gravity' },
+    jitterAmount:       { value: 1.5,  min: 0.5,  max: 5,     step: 0.5,  label: 'Hold Jitter' },
+    damping:            { value: 0.96, min: 0.8,  max: 0.99,  step: 0.01, label: 'Explosion Damping' },
+    implodeDamping:     { value: 0.92, min: 0.8,  max: 0.99,  step: 0.01, label: 'Implode Damping' },
+  },
 
   init(ctx, canvas) {
     return {
@@ -42,18 +44,19 @@ export default {
     state.canvasWidth = width;
     state.canvasHeight = height;
 
+    const P = state.params;
     switch (state.phase) {
       case PHASES.WAITING:
-        _updateWaiting(state, input, dt);
+        _updateWaiting(state, input, dt, P);
         break;
       case PHASES.IMPLODING:
-        _updateImploding(state, input, dt);
+        _updateImploding(state, input, dt, P);
         break;
       case PHASES.HOLDING:
-        _updateHolding(state, input, dt);
+        _updateHolding(state, input, dt, P);
         break;
       case PHASES.EXPLODING:
-        _updateExploding(state, input, dt);
+        _updateExploding(state, input, dt, P);
         break;
     }
   },
@@ -89,7 +92,7 @@ export default {
   },
 };
 
-function _updateWaiting(state, input, dt) {
+function _updateWaiting(state, input, dt, P) {
   // Cooldown after explosion
   if (state.waitCooldown > 0) {
     state.waitCooldown -= dt;
@@ -124,12 +127,13 @@ function _updateWaiting(state, input, dt) {
   const webcamDims = input.getWebcamDimensions();
 
   // Select a subset of mask pixels as targets
-  const targetCount = Math.min(PARTICLE_COUNT, maskPixels.length);
+  const pCount = Math.round(P.particleCount);
+  const targetCount = Math.min(pCount, maskPixels.length);
   const step = Math.max(1, Math.floor(maskPixels.length / targetCount));
 
   state.particles = [];
 
-  for (let i = 0; i < maskPixels.length && state.particles.length < PARTICLE_COUNT; i += step) {
+  for (let i = 0; i < maskPixels.length && state.particles.length < pCount; i += step) {
     const mp = maskPixels[i];
 
     // Map mask coords to canvas coords (mirrored)
@@ -171,7 +175,7 @@ function _updateWaiting(state, input, dt) {
   state.detectionCount = 0;
 }
 
-function _updateImploding(state, input, dt) {
+function _updateImploding(state, input, dt, P) {
   let settledCount = 0;
 
   for (const p of state.particles) {
@@ -180,19 +184,19 @@ function _updateImploding(state, input, dt) {
     const dy = p.targetY - p.y;
     const d = Math.sqrt(dx * dx + dy * dy);
 
-    if (d < SETTLE_THRESHOLD) {
+    if (d < P.settleThreshold) {
       p.settled = true;
       settledCount++;
       // Snap close to target with jitter
-      p.x = p.targetX + (Math.random() - 0.5) * JITTER_AMOUNT;
-      p.y = p.targetY + (Math.random() - 0.5) * JITTER_AMOUNT;
+      p.x = p.targetX + (Math.random() - 0.5) * P.jitterAmount;
+      p.y = p.targetY + (Math.random() - 0.5) * P.jitterAmount;
       p.vx = 0;
       p.vy = 0;
       continue;
     }
 
     // Attraction force
-    const force = ATTRACTION_STRENGTH;
+    const force = P.attractionStrength;
     p.vx += (dx / d) * force;
     p.vy += (dy / d) * force;
 
@@ -201,8 +205,8 @@ function _updateImploding(state, input, dt) {
     p.vy += noise2D(p.x * 0.01 + 500, p.y * 0.01 + 500) * 0.5;
 
     // Damping
-    p.vx *= IMPLODE_DAMPING;
-    p.vy *= IMPLODE_DAMPING;
+    p.vx *= P.implodeDamping;
+    p.vy *= P.implodeDamping;
 
     // Integrate
     p.x += p.vx * dt * 60;
@@ -216,7 +220,7 @@ function _updateImploding(state, input, dt) {
   }
 }
 
-function _updateHolding(state, input, dt) {
+function _updateHolding(state, input, dt, P) {
   state.holdTimer += dt;
 
   // Re-sample live webcam colors during hold
@@ -226,8 +230,8 @@ function _updateHolding(state, input, dt) {
 
     for (const p of state.particles) {
       // Jitter near target
-      p.x = p.targetX + (Math.random() - 0.5) * JITTER_AMOUNT;
-      p.y = p.targetY + (Math.random() - 0.5) * JITTER_AMOUNT;
+      p.x = p.targetX + (Math.random() - 0.5) * P.jitterAmount;
+      p.y = p.targetY + (Math.random() - 0.5) * P.jitterAmount;
 
       // Re-sample color
       const wx = clamp(Math.floor((p.targetX / state.canvasWidth) * webcamDims.width), 0, webcamDims.width - 1);
@@ -237,7 +241,7 @@ function _updateHolding(state, input, dt) {
     }
   }
 
-  if (state.holdTimer >= HOLD_DURATION) {
+  if (state.holdTimer >= P.holdDuration) {
     state.phase = PHASES.EXPLODING;
 
     // Apply explosion force
@@ -246,7 +250,7 @@ function _updateHolding(state, input, dt) {
       const dy = p.y - state.center.y;
       const d = Math.sqrt(dx * dx + dy * dy) || 1;
 
-      const force = EXPLOSION_STRENGTH / Math.sqrt(d + 1);
+      const force = P.explosionStrength / Math.sqrt(d + 1);
       p.vx = (dx / d) * force + randomRange(-50, 50);
       p.vy = (dy / d) * force + randomRange(-50, 50);
       p.settled = false;
@@ -254,7 +258,7 @@ function _updateHolding(state, input, dt) {
   }
 }
 
-function _updateExploding(state, input, dt) {
+function _updateExploding(state, input, dt, P) {
   let offScreenCount = 0;
   const w = state.canvasWidth;
   const h = state.canvasHeight;
@@ -262,11 +266,11 @@ function _updateExploding(state, input, dt) {
 
   for (const p of state.particles) {
     // Gravity
-    p.vy += GRAVITY * dt;
+    p.vy += P.gravity * dt;
 
     // Damping
-    p.vx *= DAMPING;
-    p.vy *= DAMPING;
+    p.vx *= P.damping;
+    p.vy *= P.damping;
 
     // Integrate
     p.x += p.vx * dt;
