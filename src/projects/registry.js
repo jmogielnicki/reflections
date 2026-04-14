@@ -34,4 +34,11 @@ export const projects = [
     mediapipe: [],
     load: () => import('./liquid-rings/index.js').then(m => m.default),
   },
+  {
+    id: 'spider-web',
+    name: 'Spider Web',
+    description: 'A net of threads stretches across the screen. Move your face and the web clings to it like a spider\'s trap.',
+    mediapipe: ['face'],
+    load: () => import('./spider-web/index.js').then(m => m.default),
+  },
 ];
