@@ -41,4 +41,11 @@ export const projects = [
     mediapipe: ['face'],
     load: () => import('./spider-web/index.js').then(m => m.default),
   },
+  {
+    id: 'ripple-mesh',
+    name: 'Ripple Mesh',
+    description: 'A calm grid of water-like mesh. Your face touches the surface and sends ripples spreading outward.',
+    mediapipe: ['face'],
+    load: () => import('./ripple-mesh/index.js').then(m => m.default),
+  },
 ];
