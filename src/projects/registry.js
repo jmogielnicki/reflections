@@ -55,4 +55,11 @@ export const projects = [
     mediapipe: [],
     load: () => import('./motion-spray/index.js').then(m => m.default),
   },
+  {
+    id: 'cascade',
+    name: 'Cascade',
+    description: 'Colored pills stream down vertical tracks, stretching in dark areas and racing through bright ones.',
+    mediapipe: [],
+    load: () => import('./cascade/index.js').then(m => m.default),
+  },
 ];
