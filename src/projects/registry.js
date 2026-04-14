@@ -48,4 +48,11 @@ export const projects = [
     mediapipe: ['face'],
     load: () => import('./ripple-mesh/index.js').then(m => m.default),
   },
+  {
+    id: 'motion-spray',
+    name: 'Motion Spray',
+    description: 'Areas of movement get sprayed with paint dots. Stay still and the portrait crystallizes. Move and it splatters.',
+    mediapipe: [],
+    load: () => import('./motion-spray/index.js').then(m => m.default),
+  },
 ];
