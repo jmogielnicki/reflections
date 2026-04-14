@@ -91,6 +91,11 @@ export class ProjectRunner {
     return this._project ? this._project.name : '';
   }
 
+  /** Get the active project's presets */
+  getProjectPresets() {
+    return this._project ? (this._project.presets || []) : [];
+  }
+
   start() {
     if (this._running) return;
     this._running = true;

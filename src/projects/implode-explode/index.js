@@ -25,6 +25,20 @@ export default {
     damping:            { value: 0.96, min: 0.8,  max: 0.99,  step: 0.01, label: 'Explosion Damping' },
     implodeDamping:     { value: 0.92, min: 0.8,  max: 0.99,  step: 0.01, label: 'Implode Damping' },
   },
+  presets: [
+    {
+      name: 'Slow Reveal',
+      values: { attractionStrength: 2, holdDuration: 5, explosionStrength: 200, gravity: 50, implodeDamping: 0.95 },
+    },
+    {
+      name: 'Flash Bang',
+      values: { attractionStrength: 12, holdDuration: 0.8, explosionStrength: 1800, gravity: 400, damping: 0.92 },
+    },
+    {
+      name: 'Cosmic Dust',
+      values: { particleCount: 12000, attractionStrength: 3, holdDuration: 4, explosionStrength: 400, gravity: 0, jitterAmount: 3, damping: 0.99 },
+    },
+  ],
 
   init(ctx, canvas) {
     return {

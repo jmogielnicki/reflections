@@ -20,6 +20,20 @@ export default {
     noiseSpeed:     { value: 1.5,   min: 0.1,   max: 5,     step: 0.1,   label: 'Noise Speed' },
     trailFade:      { value: 0.08,  min: 0.01,  max: 0.3,   step: 0.01,  label: 'Trail Fade' },
   },
+  presets: [
+    {
+      name: 'Gentle Drift',
+      values: { maxVibration: 8, springStrength: 0.03, damping: 0.97, noiseSpeed: 0.5, trailFade: 0.03 },
+    },
+    {
+      name: 'Electric Storm',
+      values: { maxVibration: 80, noiseFreq: 0.03, noiseSpeed: 4, trailFade: 0.15 },
+    },
+    {
+      name: 'Dense Swarm',
+      values: { particleCount: 9000, maxVibration: 15, springStrength: 0.15, damping: 0.88, trailFade: 0.04 },
+    },
+  ],
 
   init(ctx, canvas) {
     const particles = [];

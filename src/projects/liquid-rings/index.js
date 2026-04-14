@@ -26,6 +26,20 @@ export default {
     webcamInfluence: { value: 0.8,   min: 0.0,   max: 1.0,   step: 0.05,  label: 'Webcam Influence' },
     baseDistortion:  { value: 0.2,   min: 0.0,   max: 1.0,   step: 0.05,  label: 'Base Distortion' },
   },
+  presets: [
+    {
+      name: 'Deep Ocean',
+      values: { baseHue: 220, colorSpread: 40, noiseFactor: 120, speed: 0.15, lineWidth: 2.5, opacity: 0.85, webcamInfluence: 0.9 },
+    },
+    {
+      name: 'Neon Fracture',
+      values: { baseHue: 120, colorSpread: 180, noiseFactor: 250, speed: 1.2, lineWidth: 1, outerChaos: 4.5, opacity: 0.9, webcamInfluence: 0.6 },
+    },
+    {
+      name: 'Zen Garden',
+      values: { ringCount: 15, gap: 30, noiseFactor: 40, speed: 0.1, baseHue: 30, colorSpread: 30, outerChaos: 1.2, baseDistortion: 0.5, webcamInfluence: 0.3 },
+    },
+  ],
 
   init(ctx, canvas) {
     return {};

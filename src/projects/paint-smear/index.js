@@ -14,6 +14,20 @@ export default {
     colorBoost:    { value: 1.3,   min: 1.0,   max: 2.0,  step: 0.05,  label: 'Color Boost' },
     paintNoiseFreq:{ value: 0.004, min: 0.001, max: 0.02, step: 0.001, label: 'Paint Noise Freq' },
   },
+  presets: [
+    {
+      name: 'Thick Oil',
+      values: { retractSpeed: 0.005, smearStrength: 35, colorBoost: 1.8, paintNoiseFreq: 0.003 },
+    },
+    {
+      name: 'Watercolor Wash',
+      values: { retractSpeed: 0.06, smearStrength: 5, colorBoost: 1.05, paintNoiseFreq: 0.008 },
+    },
+    {
+      name: 'Neon Drag',
+      values: { retractSpeed: 0.002, smearStrength: 25, colorBoost: 2.0, paintNoiseFreq: 0.015 },
+    },
+  ],
 
   init(ctx, canvas) {
     const w = canvas.width;

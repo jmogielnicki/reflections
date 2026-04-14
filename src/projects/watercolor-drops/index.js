@@ -33,6 +33,20 @@ export default {
     weatherChangeMax:{ value: 10,   min: 5,   max: 30,  step: 1,    label: 'Weather Max (s)' },
     fadeSpeed:       { value: 0.003,min: 0.0, max: 0.02,step: 0.001,label: 'Background Fade' },
   },
+  presets: [
+    {
+      name: 'Fine Mist',
+      values: { maxDropSize: 8, minDropSize: 1, dropMaxAge: 4, dropMinAge: 1, dropOpacity: 0.95, fadeSpeed: 0.008 },
+    },
+    {
+      name: 'Heavy Pour',
+      values: { maxDropSize: 50, minDropSize: 10, dropMaxAge: 15, dropMinAge: 6, dropOpacity: 0.7, fadeSpeed: 0.001 },
+    },
+    {
+      name: 'Slow Bloom',
+      values: { maxDropSize: 40, minDropSize: 5, dropMaxAge: 18, dropMinAge: 8, dropOpacity: 0.5, fadeSpeed: 0, weatherChangeMin: 8, weatherChangeMax: 25 },
+    },
+  ],
 
   init(ctx, canvas) {
     const accCanvas = new OffscreenCanvas(canvas.width, canvas.height);
