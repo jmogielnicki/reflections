@@ -62,4 +62,11 @@ export const projects = [
     mediapipe: [],
     load: () => import('./cascade/index.js').then(m => m.default),
   },
+  {
+    id: 'dream-face',
+    name: 'Dream Face',
+    description: 'Your face fragments into drifting pieces that breathe and wander — an ethereal, surreal self-portrait.',
+    mediapipe: ['face'],
+    load: () => import('./dream-face/index.js').then(m => m.default),
+  },
 ];
