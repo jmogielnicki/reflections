@@ -69,4 +69,11 @@ export const projects = [
     mediapipe: ['face'],
     load: () => import('./dream-face/index.js').then(m => m.default),
   },
+  {
+    id: 'aurora-field',
+    name: 'Aurora Field',
+    description: 'A living aurora of colored smoke fills the screen. Step in front of the camera to cast a glowing light across it.',
+    mediapipe: ['pose'],
+    load: () => import('./aurora-field/index.js').then(m => m.default),
+  },
 ];
