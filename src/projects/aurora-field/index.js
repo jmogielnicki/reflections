@@ -53,9 +53,10 @@ export default {
       offscreen,
       offCtx,
       imageData,
-      // Light source positions (normalized 0-1, canvas space)
-      // We track up to 2 lights: head and torso
-      lights: [],
+      // Smoothed light position (normalized 0-1)
+      lightX: 0.5,
+      lightY: 0.4,
+      hasTarget: false,
       // Smooth entry/exit
       lightAlpha: 0,
     };
@@ -68,46 +69,34 @@ export default {
     if (isPresent) {
       state.lightAlpha = Math.min(1, state.lightAlpha + dt * P.fadeSpeed);
 
-      // Build light positions from pose landmarks
-      state.lights = [];
+      let targetX = null;
+      let targetY = null;
 
-      // Head light: from nose landmark if available
       if (input.pose && input.pose.landmarks && input.pose.landmarks.length > 0) {
         const lm = input.pose.landmarks[0];
-
-        // Nose (idx 0)
         if (lm[0]) {
-          state.lights.push({
-            x: 1 - lm[0].x,  // mirror
-            y: lm[0].y,
-            weight: 0.6,
-          });
-        }
-
-        // Chest midpoint: between shoulders (11, 12)
-        if (lm[11] && lm[12]) {
-          state.lights.push({
-            x: 1 - (lm[11].x + lm[12].x) * 0.5,
-            y: (lm[11].y + lm[12].y) * 0.5 + 0.08,
-            weight: 0.8,
-          });
-        }
-
-        // Hip midpoint (23, 24) — lower body glow
-        if (lm[23] && lm[24]) {
-          state.lights.push({
-            x: 1 - (lm[23].x + lm[24].x) * 0.5,
-            y: (lm[23].y + lm[24].y) * 0.5,
-            weight: 0.4,
-          });
+          targetX = 1 - lm[0].x;
+          targetY = lm[0].y;
         }
       } else if (input.derived.horizontalPosition !== undefined) {
-        // Fallback: use horizontal position only
-        state.lights.push({ x: input.derived.horizontalPosition, y: 0.45, weight: 1.0 });
+        targetX = input.derived.horizontalPosition;
+        targetY = 0.45;
+      }
+
+      if (targetX !== null) {
+        const smoothing = 1 - Math.exp(-dt * 3.0);
+        if (!state.hasTarget) {
+          state.lightX = targetX;
+          state.lightY = targetY;
+          state.hasTarget = true;
+        } else {
+          state.lightX = lerp(state.lightX, targetX, smoothing);
+          state.lightY = lerp(state.lightY, targetY, smoothing);
+        }
       }
     } else {
       state.lightAlpha = Math.max(0, state.lightAlpha - dt * P.fadeSpeed * 0.5);
-      state.lights = [];
+      state.hasTarget = false;
     }
   },
 
@@ -149,41 +138,25 @@ export default {
 
         let [r, g, b] = hslToRgb(hue, sat, lit);
 
-        // --- Flashlight from person positions ---
-        if (state.lightAlpha > 0 && state.lights.length > 0) {
-          // Combine all light contributions
-          let totalLight = 0;
-          for (const light of state.lights) {
-            const dx = (nx - light.x) * aspectRatio;
-            const dy = ny - light.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const radius = P.glowRadius * light.weight;
-            if (dist < radius) {
-              const t01 = dist / radius;
-              // Smooth falloff: bright center, soft edge
-              const falloff = Math.pow(1 - t01, P.glowFalloff);
-              totalLight += falloff * light.weight;
+        // --- Flashlight from person position ---
+        if (state.lightAlpha > 0 && state.hasTarget) {
+          const dx = (nx - state.lightX) * aspectRatio;
+          const dy = ny - state.lightY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < P.glowRadius) {
+            const t01 = dist / P.glowRadius;
+            const falloff = Math.pow(1 - t01, P.glowFalloff);
+            const lightIntensity = clamp(falloff * P.glowStrength * state.lightAlpha, 0, 1);
+
+            if (lightIntensity > 0) {
+              // Illuminate the smoke: boost its own brightness and saturation
+              const boostedLit = clamp(lit + lightIntensity * 0.5, 0, 0.8);
+              const boostedSat = clamp(sat + lightIntensity * 0.25, 0, 1);
+              // Subtle hue shift toward light color in bright areas
+              const shiftedHue = hue + (P.glowHue - hue) * lightIntensity * P.lightBlend * 0.3;
+              [r, g, b] = hslToRgb(shiftedHue, boostedSat, boostedLit);
             }
-          }
-
-          const lightIntensity = clamp(totalLight * P.glowStrength * state.lightAlpha, 0, 1);
-
-          if (lightIntensity > 0) {
-            // Flashlight effect: reveal the smoke color AND shift hue toward light color
-            const litSmoke = clamp(lit + lightIntensity * 0.55, 0, 0.85);
-
-            // Base color boosted by light
-            const [lr, lg, lb] = hslToRgb(hue, sat, litSmoke);
-
-            // Light color tint (the "colored flashlight")
-            const tintLit = clamp(0.35 + lightIntensity * 0.35, 0, 0.75);
-            const [tr_, tg_, tb_] = hslToRgb(P.glowHue, 0.9, tintLit);
-
-            // Blend: mostly lit smoke, partially tinted by light color
-            const blend = lightIntensity * P.lightBlend;
-            r = Math.round(lerp(lr, tr_, blend));
-            g = Math.round(lerp(lg, tg_, blend));
-            b = Math.round(lerp(lb, tb_, blend));
           }
         }
 
