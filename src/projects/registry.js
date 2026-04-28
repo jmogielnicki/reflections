@@ -76,4 +76,11 @@ export const projects = [
     mediapipe: ['pose'],
     load: () => import('./aurora-field/index.js').then(m => m.default),
   },
+  {
+    id: 'contour-lines',
+    name: 'Contour Lines',
+    description: 'Parallel lines bend around your form, creating a topographic 3D illusion from flat strokes.',
+    mediapipe: [],
+    load: () => import('./contour-lines/index.js').then(m => m.default),
+  },
 ];
