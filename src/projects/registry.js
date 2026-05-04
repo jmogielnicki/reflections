@@ -83,4 +83,11 @@ export const projects = [
     mediapipe: [],
     load: () => import('./contour-lines/index.js').then(m => m.default),
   },
+  {
+    id: 'parallax-snow',
+    name: 'Parallax Snow',
+    description: 'A layered winter scene with falling snow. Move your head to peer through the window and feel the depth.',
+    mediapipe: ['face'],
+    load: () => import('./parallax-snow/index.js').then(m => m.default),
+  },
 ];
