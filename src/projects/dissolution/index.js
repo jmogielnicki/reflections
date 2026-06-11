@@ -25,7 +25,7 @@ export default {
   params: {
     countdown:  { value: 3,    min: 1,   max: 10,  step: 0.5,  label: 'Countdown (s)' },
     hold:       { value: 0.7,  min: 0,   max: 3,   step: 0.1,  label: 'Freeze Hold (s)' },
-    spread:     { value: 8,    min: 1,   max: 25,  step: 0.5,  label: 'Dissolve Over (s)' },
+    spread:     { value: 8,    min: 0,   max: 25,  step: 0.5,  label: 'Dissolve Over (s)' },
     patch:      { value: 70,   min: 10,  max: 250, step: 5,    label: 'Erosion Patch (px)' },
     fade:       { value: 9,    min: 2,   max: 25,  step: 0.5,  label: 'Mote Fade (s)' },
     drift:      { value: 16,   min: 0,   max: 80,  step: 1,    label: 'Drift Force' },
@@ -291,14 +291,18 @@ function _freeze(state, input) {
     const top = map.offY + (cell.y0 / mh) * map.drawH;
     const bottom = map.offY + (cell.y1 / mh) * map.drawH;
 
-    // Clip to the canvas (cover fit can push cells off-screen)
-    const x0 = clamp(left, 0, w);
-    const x1 = clamp(right, 0, w);
-    const y0 = clamp(top, 0, h);
-    const y1 = clamp(bottom, 0, h);
+    // Clip to the canvas (cover fit can push cells off-screen) and snap to
+    // whole pixels: adjacent cells share the same snapped boundary, so the
+    // lift-out clears are exact — no antialiased slivers left behind and no
+    // biting into neighbors that haven't released yet. Zero-size cells own
+    // no pixels (a neighbor's rect covers them) and are skipped.
+    const x0 = Math.round(clamp(left, 0, w));
+    const x1 = Math.round(clamp(right, 0, w));
+    const y0 = Math.round(clamp(top, 0, h));
+    const y1 = Math.round(clamp(bottom, 0, h));
     const rectW = x1 - x0;
     const rectH = y1 - y0;
-    if (rectW < 0.5 || rectH < 0.5) continue;
+    if (rectW < 1 || rectH < 1) continue;
 
     const cx = x0 + rectW / 2;
     const cy = y0 + rectH / 2;
@@ -375,14 +379,31 @@ function _updateDissolving(state, input, dt) {
 
   // Release flakes whose time has come (array is sorted by releaseAt).
   // Each is lifted out of the frozen image and redrawn at the exact same
-  // spot this frame, so the hand-off is invisible. The half-pixel overlap
-  // prevents antialiased seams between neighboring lift-outs.
-  while (state.releasedCount < n && t >= parts[state.releasedCount].releaseAt) {
-    const p = parts[state.releasedCount++];
-    p.released = true;
-    p.vx = state.frozenVel.x * params.momentum + randomRange(-4, 4);
-    p.vy = state.frozenVel.y * params.momentum + randomRange(-4, 4);
-    sctx.clearRect(p.srcX - 0.5, p.srcY - 0.5, p.rectW + 1, p.rectH + 1);
+  // spot this frame, so the hand-off is invisible. Flakes start with only
+  // the body's carried momentum; all other motion ramps in from the flow
+  // field so nothing shifts at the instant of release.
+  const vx0 = state.frozenVel.x * params.momentum;
+  const vy0 = state.frozenVel.y * params.momentum;
+  if (state.releasedCount < n && t >= parts[n - 1].releaseAt) {
+    // Everything is due at once (e.g. Dissolve Over = 0): skip per-flake
+    // clears and wipe the snapshot in one go
+    for (let i = state.releasedCount; i < n; i++) {
+      const p = parts[i];
+      p.released = true;
+      p.vx = vx0;
+      p.vy = vy0;
+    }
+    state.releasedCount = n;
+    sctx.clearRect(0, 0, state.snapshot.width, state.snapshot.height);
+    state.snapshotCleared = true;
+  } else {
+    while (state.releasedCount < n && t >= parts[state.releasedCount].releaseAt) {
+      const p = parts[state.releasedCount++];
+      p.released = true;
+      p.vx = vx0;
+      p.vy = vy0;
+      sctx.clearRect(p.srcX, p.srcY, p.rectW, p.rectH);
+    }
   }
 
   // Evaluate the flow noise once per grid node per frame; particles sample
