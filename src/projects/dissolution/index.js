@@ -2,13 +2,16 @@ import { extractMask, getCenterOfMass } from '../../utils/silhouette.js';
 import { clamp, lerp, randomRange, easeInOut } from '../../utils/math.js';
 import { noise2D, noise3D } from '../../utils/noise.js';
 import { rgbString } from '../../utils/color.js';
+import { FlakeRenderer } from './FlakeRenderer.js';
 
 const BACKGROUND = '#f5f2ec';        // warm off-white
 const INK = [70, 64, 54];            // soft warm gray for text
 const PRESENCE_MIN_SAMPLES = 80;     // mask samples (at step 8) required to count as present
 const PRESENCE_FRAMES = 45;          // stable frames of presence before countdown starts
 const ABSENCE_CANCEL_FRAMES = 30;    // frames of absence that cancel a countdown
-const MAX_PARTICLES = 20000;
+const MAX_PARTICLES_GL = 150000;     // WebGL point sprites stay cheap
+const MAX_PARTICLES_2D = 20000;      // canvas-2D drawImage fallback budget
+const FLOW_GRID_SPACING = 40;        // px between flow-field noise samples
 const MAX_CARRY_SPEED = 150;         // px/s cap on inherited body motion
 const REST_DURATION = 2.5;           // pause on empty mirror before re-arming
 
@@ -32,7 +35,7 @@ export default {
     buoyancy:   { value: 5,    min: -30, max: 30,  step: 1,    label: 'Buoyancy' },
     damping:    { value: 0.7,  min: 0,   max: 3,   step: 0.05, label: 'Damping' },
     moteSize:   { value: 1.4,  min: 0.5, max: 4,   step: 0.1,  label: 'Mote Size (px)' },
-    density:    { value: 4,    min: 2,   max: 8,   step: 1,    label: 'Sample Step' },
+    flake:      { value: 3,    min: 1,   max: 10,  step: 1,    label: 'Flake Size' },
     softness:   { value: 1.5,  min: 0,   max: 6,   step: 0.5,  label: 'Edge Blur (px)' },
   },
   // The defaults are the "gentle drift" mood; these presets explore others.
@@ -82,10 +85,19 @@ export default {
 
       // Particles + frozen image
       particles: [],
+      releasedCount: 0,
+      firstAlive: 0,
       snapshot: null,
       snapshotCtx: null,
       snapshotCleared: false,
       source: null,
+      flakes: FlakeRenderer.create(canvas),
+
+      // Shared flow field, sampled on a coarse grid once per frame
+      flowFx: null,
+      flowFy: null,
+      flowCols: 0,
+      flowRows: 0,
 
       // Reusable compositing layers
       maskResult: null,
@@ -133,6 +145,7 @@ export default {
   resize(state, width, height) {
     state.canvasWidth = width;
     state.canvasHeight = height;
+    if (state.flakes) state.flakes.resize();
     // Frozen snapshot and particle positions no longer match the canvas
     if (state.phase === PHASES.DISSOLVING || state.phase === PHASES.RESTING) {
       _reset(state);
@@ -140,6 +153,10 @@ export default {
   },
 
   cleanup(state) {
+    if (state.flakes) {
+      state.flakes.destroy();
+      state.flakes = null;
+    }
     state.particles.length = 0;
     state.snapshot = null;
     state.maskLayer = null;
@@ -150,10 +167,13 @@ export default {
 function _reset(state) {
   state.phase = PHASES.MIRROR;
   state.particles.length = 0;
+  state.releasedCount = 0;
+  state.firstAlive = 0;
   state.snapshot = null;
   state.snapshotCtx = null;
   state.snapshotCleared = false;
   state.source = null;
+  if (state.flakes) state.flakes.clear();
   state.presenceFrames = 0;
   state.absenceFrames = 0;
   state.prevCenter = null;
@@ -240,9 +260,10 @@ function _freeze(state, input) {
   // too many. Every cell that touches the mask becomes a fragment carrying
   // its actual image pixels, so the whole body — edges included — leaves as
   // particles with nothing left behind.
-  let step = Math.round(params.density);
+  const maxParticles = state.flakes ? MAX_PARTICLES_GL : MAX_PARTICLES_2D;
+  let step = Math.round(params.flake);
   let cells = _coveredCells(maskResult, step);
-  while (cells.length > MAX_PARTICLES && step < 16) {
+  while (cells.length > maxParticles && step < 16) {
     step++;
     cells = _coveredCells(maskResult, step);
   }
@@ -298,6 +319,7 @@ function _freeze(state, input) {
       srcY: y0,
       rectW,
       rectH,
+      cellPx: Math.max(rectW, rectH),
       moteScale,
       scale: 1,
       released: false,
@@ -305,8 +327,16 @@ function _freeze(state, input) {
       releaseAt,
       age: 0,
       alpha: 1,
-      seed: Math.random() * 10,
     });
+  }
+
+  // Release order = array order, so released flakes form a contiguous window
+  state.particles.sort((a, b) => a.releaseAt - b.releaseAt);
+  state.releasedCount = 0;
+  state.firstAlive = 0;
+
+  if (state.flakes) {
+    state.flakes.begin(state.source, state.particles);
   }
 
   state.dissolveT = 0;
@@ -345,41 +375,62 @@ function _updateDissolving(state, input, dt) {
   const w = state.canvasWidth;
   const h = state.canvasHeight;
   const sctx = state.snapshotCtx;
-  const ns = params.noiseScale * 0.001;
+  const parts = state.particles;
+  const n = parts.length;
+
+  // Release flakes whose time has come (array is sorted by releaseAt).
+  // Each is lifted out of the frozen image and redrawn at the exact same
+  // spot this frame, so the hand-off is invisible. The half-pixel overlap
+  // prevents antialiased seams between neighboring lift-outs.
+  while (state.releasedCount < n && t >= parts[state.releasedCount].releaseAt) {
+    const p = parts[state.releasedCount++];
+    p.released = true;
+    p.vx = state.frozenVel.x * params.momentum + randomRange(-4, 4);
+    p.vy = state.frozenVel.y * params.momentum + randomRange(-4, 4);
+    sctx.clearRect(p.srcX - 0.5, p.srcY - 0.5, p.rectW + 1, p.rectH + 1);
+  }
+
+  // Evaluate the flow noise once per grid node per frame; particles sample
+  // it bilinearly. This keeps cost flat regardless of particle count.
+  if (state.releasedCount > state.firstAlive) {
+    _buildFlowField(state, params);
+  }
+  const { flowFx, flowFy, flowCols, flowRows } = state;
+  const spacing = FLOW_GRID_SPACING;
   const dampF = Math.exp(-params.damping * dt);
+  const shrinkTime = params.fade * 0.35;
 
-  let alive = 0;
-  let frozen = 0;
-  for (const p of state.particles) {
+  let moving = 0;
+  for (let i = state.firstAlive; i < state.releasedCount; i++) {
+    const p = parts[i];
     if (p.dead) continue;
-
-    if (!p.released) {
-      if (t < p.releaseAt) {
-        alive++;
-        frozen++;
-        continue;
-      }
-      p.released = true;
-      p.vx = state.frozenVel.x * params.momentum + randomRange(-4, 4);
-      p.vy = state.frozenVel.y * params.momentum + randomRange(-4, 4);
-      // Lift this fragment out of the frozen image. It gets redrawn at the
-      // exact same spot this frame, so the hand-off is invisible. The
-      // half-pixel overlap prevents antialiased seams between neighbors.
-      sctx.clearRect(p.srcX - 0.5, p.srcY - 0.5, p.rectW + 1, p.rectH + 1);
-    }
 
     p.age += dt;
     const lifeT = p.age / params.fade;
     if (lifeT >= 1) {
       p.dead = true;
+      p.alpha = 0;
       continue;
     }
 
-    // Coherent flow field — like still air slowly moving through a room
-    const angle = noise3D(p.x * ns, p.y * ns, state.time * params.noiseSpeed + p.seed * 0.05) * Math.PI * 2;
-    p.vx += Math.cos(angle) * params.drift * dt;
-    p.vy += Math.sin(angle) * params.drift * dt;
-    p.vy -= params.buoyancy * dt;
+    // Bilinear sample of the shared flow field
+    let gx = p.x / spacing;
+    let gy = p.y / spacing;
+    gx = gx < 0 ? 0 : (gx > flowCols - 2 ? flowCols - 2 : gx);
+    gy = gy < 0 ? 0 : (gy > flowRows - 2 ? flowRows - 2 : gy);
+    const cx = Math.floor(gx);
+    const cy = Math.floor(gy);
+    const tx = gx - cx;
+    const ty = gy - cy;
+    const i00 = cy * flowCols + cx;
+    const i01 = i00 + flowCols;
+    const fx = (flowFx[i00] * (1 - tx) + flowFx[i00 + 1] * tx) * (1 - ty) +
+               (flowFx[i01] * (1 - tx) + flowFx[i01 + 1] * tx) * ty;
+    const fy = (flowFy[i00] * (1 - tx) + flowFy[i00 + 1] * tx) * (1 - ty) +
+               (flowFy[i01] * (1 - tx) + flowFy[i01 + 1] * tx) * ty;
+
+    p.vx += fx * dt;
+    p.vy += fy * dt - params.buoyancy * dt;
     p.vx *= dampF;
     p.vy *= dampF;
     p.x += p.vx * dt;
@@ -387,18 +438,22 @@ function _updateDissolving(state, input, dt) {
 
     if (p.x < -60 || p.x > w + 60 || p.y < -60 || p.y > h + 60) {
       p.dead = true;
+      p.alpha = 0;
       continue;
     }
 
     // Full opacity at release (matching the frozen image exactly), then a
-    // slow ease into transparency
+    // slow ease into transparency; shrink from full image fragment down to
+    // a dust speck over the first third of its life
     p.alpha = 1 - easeInOut(clamp(lifeT, 0, 1));
-    // Shrink from full image fragment down to a dust speck over the first
-    // third of its life
-    const shrinkT = clamp(p.age / (params.fade * 0.35), 0, 1);
-    p.scale = lerp(1, p.moteScale, easeInOut(shrinkT));
-    alive++;
+    p.scale = lerp(1, p.moteScale, easeInOut(clamp(p.age / shrinkTime, 0, 1)));
+    moving++;
   }
+  while (state.firstAlive < state.releasedCount && parts[state.firstAlive].dead) {
+    state.firstAlive++;
+  }
+
+  const frozen = n - state.releasedCount;
 
   // Once every particle has released, wipe the snapshot so no edge
   // fringe or antialiased slivers linger behind
@@ -407,10 +462,37 @@ function _updateDissolving(state, input, dt) {
     state.snapshotCleared = true;
   }
 
-  if (alive === 0) {
+  if (frozen === 0 && moving === 0) {
     state.particles.length = 0;
+    state.releasedCount = 0;
+    state.firstAlive = 0;
+    if (state.flakes) state.flakes.clear();
     state.phase = PHASES.RESTING;
     state.restT = 0;
+  }
+}
+
+/** Flow field as unit drift vectors (pre-scaled by drift force) on a coarse grid */
+function _buildFlowField(state, params) {
+  const spacing = FLOW_GRID_SPACING;
+  const cols = Math.ceil(state.canvasWidth / spacing) + 2;
+  const rows = Math.ceil(state.canvasHeight / spacing) + 2;
+  if (!state.flowFx || state.flowFx.length !== cols * rows) {
+    state.flowFx = new Float32Array(cols * rows);
+    state.flowFy = new Float32Array(cols * rows);
+  }
+  state.flowCols = cols;
+  state.flowRows = rows;
+
+  const ns = params.noiseScale * 0.001;
+  const tz = state.time * params.noiseSpeed;
+  const drift = params.drift;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const angle = noise3D(c * spacing * ns, r * spacing * ns, tz) * Math.PI * 2;
+      state.flowFx[r * cols + c] = Math.cos(angle) * drift;
+      state.flowFy[r * cols + c] = Math.sin(angle) * drift;
+    }
   }
 }
 
@@ -451,12 +533,19 @@ function _renderDissolving(state, ctx, canvas) {
   if (state.snapshot) {
     ctx.drawImage(state.snapshot, 0, 0);
   }
-  if (!state.source) return;
 
   // Each fragment is a piece of the frozen image itself, drifting away and
-  // shrinking into a speck
-  for (const p of state.particles) {
-    if (!p.released || p.dead || p.alpha <= 0.01) continue;
+  // shrinking into a speck. Drawn as WebGL point sprites on the overlay
+  // canvas when available, canvas-2D drawImage otherwise.
+  if (state.flakes) {
+    state.flakes.draw(state.particles, state.firstAlive, state.releasedCount);
+    return;
+  }
+  if (!state.source) return;
+
+  for (let i = state.firstAlive; i < state.releasedCount; i++) {
+    const p = state.particles[i];
+    if (p.dead || p.alpha <= 0.01) continue;
     const dw = p.rectW * p.scale;
     const dh = p.rectH * p.scale;
     if (dw < 0.2 || dh < 0.2) continue;
