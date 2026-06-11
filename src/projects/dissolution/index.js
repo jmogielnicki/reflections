@@ -3,7 +3,6 @@ import { getPixelColor } from '../../utils/pixels.js';
 import { clamp, lerp, randomRange, easeInOut, easeOut } from '../../utils/math.js';
 import { noise2D, noise3D } from '../../utils/noise.js';
 import { rgbString } from '../../utils/color.js';
-import { createControlPanel } from '../../utils/controls.js';
 
 const BACKGROUND = '#f5f2ec';        // warm off-white
 const INK = [70, 64, 54];            // soft warm gray for text
@@ -16,41 +15,51 @@ const REST_DURATION = 2.5;           // pause on empty mirror before re-arming
 
 const PHASES = { MIRROR: 0, COUNTDOWN: 1, DISSOLVING: 2, RESTING: 3 };
 
-// Presets only touch the "feel" parameters, leaving countdown, density,
-// and edge blur as the user set them.
-const PRESETS = [
-  {
-    // The tuned defaults: slow patchy erosion, dust hanging in still air
-    name: 'Gentle drift',
-    values: { hold: 0.7, spread: 8, patch: 70, fade: 9, drift: 16, noiseScale: 1.5, noiseSpeed: 0.08, momentum: 0.6, buoyancy: 5, damping: 0.7, moteSize: 1.4 },
-  },
-  {
-    // Heavy motes sink and settle like ash after a fire
-    name: 'Ash',
-    values: { hold: 1.2, spread: 12, patch: 110, fade: 13, drift: 9, noiseScale: 1.0, noiseSpeed: 0.04, momentum: 0.3, buoyancy: -8, damping: 1.1, moteSize: 1.2 },
-  },
-  {
-    // Everything rises — smoke leaving a body
-    name: 'Updraft',
-    values: { hold: 0.5, spread: 6, patch: 50, fade: 10, drift: 12, noiseScale: 1.2, noiseSpeed: 0.1, momentum: 0.4, buoyancy: 18, damping: 0.5, moteSize: 1.6 },
-  },
-  {
-    // Fast, windy, strongly carried by your last movement
-    name: 'Swept away',
-    values: { hold: 0.3, spread: 4, patch: 35, fade: 5.5, drift: 48, noiseScale: 3, noiseSpeed: 0.22, momentum: 1.5, buoyancy: 2, damping: 0.4, moteSize: 1.0 },
-  },
-  {
-    // Almost imperceptibly slow; large patches linger like a fading memory
-    name: 'Haunting',
-    values: { hold: 1.5, spread: 18, patch: 160, fade: 20, drift: 6, noiseScale: 0.7, noiseSpeed: 0.03, momentum: 0.15, buoyancy: 3, damping: 0.6, moteSize: 1.8 },
-  },
-];
-
 export default {
   id: 'dissolution',
   name: 'Dissolution',
   description: 'Gaze at your reflection; after a countdown it freezes and gently dissolves into drifting dust.',
   mediapipe: ['segmentation'],
+  params: {
+    countdown:  { value: 3,    min: 1,   max: 10,  step: 0.5,  label: 'Countdown (s)' },
+    hold:       { value: 0.7,  min: 0,   max: 3,   step: 0.1,  label: 'Freeze Hold (s)' },
+    spread:     { value: 8,    min: 1,   max: 25,  step: 0.5,  label: 'Dissolve Over (s)' },
+    patch:      { value: 70,   min: 10,  max: 250, step: 5,    label: 'Erosion Patch (px)' },
+    fade:       { value: 9,    min: 2,   max: 25,  step: 0.5,  label: 'Mote Fade (s)' },
+    drift:      { value: 16,   min: 0,   max: 80,  step: 1,    label: 'Drift Force' },
+    noiseScale: { value: 1.5,  min: 0.2, max: 5,   step: 0.1,  label: 'Flow Scale' },
+    noiseSpeed: { value: 0.08, min: 0,   max: 0.5, step: 0.01, label: 'Flow Speed' },
+    momentum:   { value: 0.6,  min: 0,   max: 2,   step: 0.05, label: 'Momentum Carry' },
+    buoyancy:   { value: 5,    min: -30, max: 30,  step: 1,    label: 'Buoyancy' },
+    damping:    { value: 0.7,  min: 0,   max: 3,   step: 0.05, label: 'Damping' },
+    moteSize:   { value: 1.4,  min: 0.5, max: 4,   step: 0.1,  label: 'Mote Size (px)' },
+    density:    { value: 4,    min: 2,   max: 8,   step: 1,    label: 'Sample Step' },
+    softness:   { value: 1.5,  min: 0,   max: 6,   step: 0.5,  label: 'Edge Blur (px)' },
+  },
+  // The defaults are the "gentle drift" mood; these presets explore others.
+  // Countdown, density, and edge blur are deliberately left untouched.
+  presets: [
+    {
+      // Heavy motes sink and settle like ash after a fire
+      name: 'Ash',
+      values: { hold: 1.2, spread: 12, patch: 110, fade: 13, drift: 9, noiseScale: 1.0, noiseSpeed: 0.04, momentum: 0.3, buoyancy: -8, damping: 1.1, moteSize: 1.2 },
+    },
+    {
+      // Everything rises — smoke leaving a body
+      name: 'Updraft',
+      values: { hold: 0.5, spread: 6, patch: 50, fade: 10, drift: 12, noiseScale: 1.2, noiseSpeed: 0.1, momentum: 0.4, buoyancy: 18, damping: 0.5, moteSize: 1.6 },
+    },
+    {
+      // Fast, windy, strongly carried by your last movement
+      name: 'Swept Away',
+      values: { hold: 0.3, spread: 4, patch: 35, fade: 5.5, drift: 48, noiseScale: 3, noiseSpeed: 0.22, momentum: 1.5, buoyancy: 2, damping: 0.4, moteSize: 1.0 },
+    },
+    {
+      // Almost imperceptibly slow; large patches linger like a fading memory
+      name: 'Haunting',
+      values: { hold: 1.5, spread: 18, patch: 160, fade: 20, drift: 6, noiseScale: 0.7, noiseSpeed: 0.03, momentum: 0.15, buoyancy: 3, damping: 0.6, moteSize: 1.8 },
+    },
+  ],
 
   init(ctx, canvas) {
     const state = {
@@ -87,33 +96,13 @@ export default {
       maskImage: null,
       personLayer: null,
       personCtx: null,
-
-      panel: null,
-      params: null,
     };
 
-    state.panel = createControlPanel({
-      title: 'Dissolution',
-      controls: [
-        { key: 'countdown', label: 'Countdown (s)', min: 1, max: 10, step: 0.5, value: 3 },
-        { key: 'hold', label: 'Freeze hold (s)', min: 0, max: 3, step: 0.1, value: 0.7 },
-        { key: 'spread', label: 'Dissolve over (s)', min: 1, max: 25, step: 0.5, value: 8 },
-        { key: 'patch', label: 'Erosion patch (px)', min: 10, max: 250, step: 5, value: 70 },
-        { key: 'fade', label: 'Mote fade (s)', min: 2, max: 25, step: 0.5, value: 9 },
-        { key: 'drift', label: 'Drift force', min: 0, max: 80, step: 1, value: 16 },
-        { key: 'noiseScale', label: 'Flow scale', min: 0.2, max: 5, step: 0.1, value: 1.5 },
-        { key: 'noiseSpeed', label: 'Flow speed', min: 0, max: 0.5, step: 0.01, value: 0.08 },
-        { key: 'momentum', label: 'Momentum carry', min: 0, max: 2, step: 0.05, value: 0.6 },
-        { key: 'buoyancy', label: 'Buoyancy', min: -30, max: 30, step: 1, value: 5 },
-        { key: 'damping', label: 'Damping', min: 0, max: 3, step: 0.05, value: 0.7 },
-        { key: 'moteSize', label: 'Mote size (px)', min: 0.5, max: 4, step: 0.1, value: 1.4 },
-        { key: 'density', label: 'Sample step', min: 2, max: 8, step: 1, value: 4 },
-        { key: 'softness', label: 'Edge blur (px)', min: 0, max: 6, step: 0.5, value: 1.5 },
-        { type: 'button', label: 'Restart', onClick: () => _reset(state) },
-      ],
-      presets: PRESETS,
-    });
-    state.params = state.panel.params;
+    // R restarts the cycle — handy while tuning params in the debug panel
+    state._onKeyDown = (e) => {
+      if (e.key === 'r' || e.key === 'R') _reset(state);
+    };
+    window.addEventListener('keydown', state._onKeyDown);
 
     return state;
   },
@@ -159,7 +148,7 @@ export default {
   },
 
   cleanup(state) {
-    if (state.panel) state.panel.destroy();
+    window.removeEventListener('keydown', state._onKeyDown);
     state.particles.length = 0;
     state.snapshot = null;
     state.maskLayer = null;
