@@ -34,7 +34,7 @@ export default {
     momentum:   { value: 0.6,  min: 0,   max: 2,   step: 0.05, label: 'Momentum Carry' },
     buoyancy:   { value: 5,    min: -30, max: 30,  step: 1,    label: 'Buoyancy' },
     damping:    { value: 0.7,  min: 0,   max: 3,   step: 0.05, label: 'Damping' },
-    moteSize:   { value: 1.4,  min: 0.5, max: 4,   step: 0.1,  label: 'Mote Size (px)' },
+    moteShrink: { value: 1,    min: 0.1, max: 1,   step: 0.05, label: 'Mote Shrink' },
     flake:      { value: 3,    min: 1,   max: 10,  step: 1,    label: 'Flake Size' },
     softness:   { value: 1.5,  min: 0,   max: 6,   step: 0.5,  label: 'Edge Blur (px)' },
   },
@@ -44,22 +44,22 @@ export default {
     {
       // Heavy motes sink and settle like ash after a fire
       name: 'Ash',
-      values: { hold: 1.2, spread: 12, patch: 110, fade: 13, drift: 9, noiseScale: 1.0, noiseSpeed: 0.04, momentum: 0.3, buoyancy: -8, damping: 1.1, moteSize: 1.2 },
+      values: { hold: 1.2, spread: 12, patch: 110, fade: 13, drift: 9, noiseScale: 1.0, noiseSpeed: 0.04, momentum: 0.3, buoyancy: -8, damping: 1.1, moteShrink: 0.5 },
     },
     {
       // Everything rises — smoke leaving a body
       name: 'Updraft',
-      values: { hold: 0.5, spread: 6, patch: 50, fade: 10, drift: 12, noiseScale: 1.2, noiseSpeed: 0.1, momentum: 0.4, buoyancy: 18, damping: 0.5, moteSize: 1.6 },
+      values: { hold: 0.5, spread: 6, patch: 50, fade: 10, drift: 12, noiseScale: 1.2, noiseSpeed: 0.1, momentum: 0.4, buoyancy: 18, damping: 0.5, moteShrink: 0.7 },
     },
     {
       // Fast, windy, strongly carried by your last movement
       name: 'Swept Away',
-      values: { hold: 0.3, spread: 4, patch: 35, fade: 5.5, drift: 48, noiseScale: 3, noiseSpeed: 0.22, momentum: 1.5, buoyancy: 2, damping: 0.4, moteSize: 1.0 },
+      values: { hold: 0.3, spread: 4, patch: 35, fade: 5.5, drift: 48, noiseScale: 3, noiseSpeed: 0.22, momentum: 1.5, buoyancy: 2, damping: 0.4, moteShrink: 0.35 },
     },
     {
       // Almost imperceptibly slow; large patches linger like a fading memory
       name: 'Haunting',
-      values: { hold: 1.5, spread: 18, patch: 160, fade: 20, drift: 6, noiseScale: 0.7, noiseSpeed: 0.03, momentum: 0.15, buoyancy: 3, damping: 0.6, moteSize: 1.8 },
+      values: { hold: 1.5, spread: 18, patch: 160, fade: 20, drift: 6, noiseScale: 0.7, noiseSpeed: 0.03, momentum: 0.15, buoyancy: 3, damping: 0.6, moteShrink: 0.85 },
     },
   ],
 
@@ -306,10 +306,6 @@ function _freeze(state, input) {
     const n = (noise2D(cx * patchScale, cy * patchScale) + 1) / 2;
     const releaseAt = params.hold + n * params.spread + randomRange(0, params.spread * 0.1);
 
-    // Each fragment shrinks from its full tile down to a dust speck
-    const speck = params.moteSize * randomRange(0.7, 1.4);
-    const moteScale = Math.min(1, speck / Math.max(rectW, rectH));
-
     state.particles.push({
       x: cx,
       y: cy,
@@ -320,7 +316,6 @@ function _freeze(state, input) {
       rectW,
       rectH,
       cellPx: Math.max(rectW, rectH),
-      moteScale,
       scale: 1,
       released: false,
       dead: false,
@@ -399,6 +394,9 @@ function _updateDissolving(state, input, dt) {
   const spacing = FLOW_GRID_SPACING;
   const dampF = Math.exp(-params.damping * dt);
   const shrinkTime = params.fade * 0.35;
+  // Flakes shrink toward this fraction of their original size as they
+  // drift; at 1 they stay flake-sized and only the fade reveals background
+  const moteScale = clamp(params.moteShrink, 0.05, 1);
 
   let moving = 0;
   for (let i = state.firstAlive; i < state.releasedCount; i++) {
@@ -446,7 +444,7 @@ function _updateDissolving(state, input, dt) {
     // slow ease into transparency; shrink from full image fragment down to
     // a dust speck over the first third of its life
     p.alpha = 1 - easeInOut(clamp(lifeT, 0, 1));
-    p.scale = lerp(1, p.moteScale, easeInOut(clamp(p.age / shrinkTime, 0, 1)));
+    p.scale = lerp(1, moteScale, easeInOut(clamp(p.age / shrinkTime, 0, 1)));
     moving++;
   }
   while (state.firstAlive < state.releasedCount && parts[state.firstAlive].dead) {
