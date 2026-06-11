@@ -25,7 +25,47 @@ export function extractMask(segmentationResult) {
     maskData = new Uint8Array(width * height);
   }
 
+  // Some devices/delegates return the category mask with flipped polarity
+  // (person = 0, background = 255). Normalize so > 0 always means person.
+  if (_looksInverted(maskData, width, height)) {
+    const flipped = new Uint8Array(maskData.length);
+    for (let i = 0; i < maskData.length; i++) {
+      flipped[i] = maskData[i] > 0 ? 0 : 1;
+    }
+    maskData = flipped;
+  }
+
   return { data: maskData, width, height };
+}
+
+/**
+ * Heuristic polarity check: a person almost never covers all four corners
+ * of the frame, but the background usually does. If 3+ corner patches are
+ * "on", the mask is most likely inverted.
+ */
+function _looksInverted(data, width, height) {
+  const patch = Math.max(2, Math.floor(Math.min(width, height) * 0.05));
+  const corners = [
+    [0, 0],
+    [width - patch, 0],
+    [0, height - patch],
+    [width - patch, height - patch],
+  ];
+
+  let cornersOn = 0;
+  for (const [cx, cy] of corners) {
+    let on = 0;
+    let total = 0;
+    for (let y = cy; y < cy + patch; y += 2) {
+      for (let x = cx; x < cx + patch; x += 2) {
+        total++;
+        if (data[y * width + x] > 0) on++;
+      }
+    }
+    if (on / total > 0.5) cornersOn++;
+  }
+
+  return cornersOn >= 3;
 }
 
 /**

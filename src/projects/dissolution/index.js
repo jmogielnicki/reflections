@@ -161,8 +161,10 @@ function _updateMirror(state, input, dt) {
   if (present && dt > 0) {
     const center = getCenterOfMass(maskResult);
     if (center) {
-      const cx = (1 - center.x) * state.canvasWidth;
-      const cy = center.y * state.canvasHeight;
+      const dims = input.getWebcamDimensions();
+      const map = _coverMap(dims.width, dims.height, state.canvasWidth, state.canvasHeight);
+      const cx = state.canvasWidth - (map.offX + center.x * map.drawW);
+      const cy = map.offY + center.y * map.drawH;
       if (state.prevCenter) {
         const instVx = (cx - state.prevCenter.x) / dt;
         const instVy = (cy - state.prevCenter.y) / dt;
@@ -226,9 +228,10 @@ function _freeze(state, input) {
 
   const pixels = input.getPixelData();
   const webcamDims = input.getWebcamDimensions();
+  const map = _coverMap(webcamDims.width, webcamDims.height, w, h);
 
-  const tileW = (w / mw) * step;
-  const tileH = (h / mh) * step;
+  const tileW = (map.drawW / mw) * step;
+  const tileH = (map.drawH / mh) * step;
   state.punchW = tileW * 1.3;
   state.punchH = tileH * 1.3;
   const tileRadius = Math.max(tileW, tileH) * 0.7;
@@ -246,8 +249,11 @@ function _freeze(state, input) {
 
   state.particles = [];
   for (const mp of maskPixels) {
-    const canvasX = (1 - mp.x / mw) * w;
-    const canvasY = (mp.y / mh) * h;
+    const canvasX = w - (map.offX + (mp.x / mw) * map.drawW);
+    const canvasY = map.offY + (mp.y / mh) * map.drawH;
+
+    // Skip silhouette pixels cropped out by the cover fit
+    if (canvasX < -tileW || canvasX > w + tileW || canvasY < -tileH || canvasY > h + tileH) continue;
 
     const wx = clamp(Math.floor((1 - mp.x / mw) * webcamDims.width), 0, webcamDims.width - 1);
     const wy = clamp(Math.floor((mp.y / mh) * webcamDims.height), 0, webcamDims.height - 1);
@@ -414,17 +420,32 @@ function _composePerson(state, video, maskResult, targetCtx, targetW, targetH, s
   }
   state.maskCtx.putImageData(state.maskImage, 0, 0);
 
+  // Cover-fit the video to the canvas (crop instead of stretch). The
+  // centered crop is symmetric, so the same rect works in mirrored space.
+  const map = _coverMap(video.videoWidth, video.videoHeight, targetW, targetH);
+
   targetCtx.clearRect(0, 0, targetW, targetH);
   targetCtx.save();
   targetCtx.translate(targetW, 0);
   targetCtx.scale(-1, 1);
-  targetCtx.drawImage(video, 0, 0, targetW, targetH);
+  targetCtx.drawImage(video, map.offX, map.offY, map.drawW, map.drawH);
   targetCtx.globalCompositeOperation = 'destination-in';
   if (softness > 0) {
     targetCtx.filter = `blur(${softness}px)`;
   }
-  targetCtx.drawImage(state.maskLayer, 0, 0, targetW, targetH);
+  targetCtx.drawImage(state.maskLayer, map.offX, map.offY, map.drawW, map.drawH);
   targetCtx.restore();
+}
+
+/**
+ * Scale source dimensions to fill the target while preserving aspect ratio
+ * (like CSS object-fit: cover), centered, cropping the overflow.
+ */
+function _coverMap(srcW, srcH, targetW, targetH) {
+  const scale = Math.max(targetW / srcW, targetH / srcH);
+  const drawW = srcW * scale;
+  const drawH = srcH * scale;
+  return { drawW, drawH, offX: (targetW - drawW) / 2, offY: (targetH - drawH) / 2 };
 }
 
 function _countMaskSamples(maskResult, step) {
