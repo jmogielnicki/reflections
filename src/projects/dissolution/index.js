@@ -1,6 +1,5 @@
-import { extractMask, getMaskPixels, getCenterOfMass } from '../../utils/silhouette.js';
-import { getPixelColor } from '../../utils/pixels.js';
-import { clamp, lerp, randomRange, easeInOut, easeOut } from '../../utils/math.js';
+import { extractMask, getCenterOfMass } from '../../utils/silhouette.js';
+import { clamp, lerp, randomRange, easeInOut } from '../../utils/math.js';
 import { noise2D, noise3D } from '../../utils/noise.js';
 import { rgbString } from '../../utils/color.js';
 
@@ -86,7 +85,7 @@ export default {
       snapshot: null,
       snapshotCtx: null,
       snapshotCleared: false,
-      punchR: 0,
+      source: null,
 
       // Reusable compositing layers
       maskResult: null,
@@ -154,6 +153,7 @@ function _reset(state) {
   state.snapshot = null;
   state.snapshotCtx = null;
   state.snapshotCleared = false;
+  state.source = null;
   state.presenceFrames = 0;
   state.absenceFrames = 0;
   state.prevCenter = null;
@@ -227,28 +227,28 @@ function _freeze(state, input) {
   const { width: mw, height: mh } = maskResult;
   const params = state.params;
 
-  // Capture the frozen reflection at full resolution
+  // Capture the frozen reflection at full resolution, plus a pristine copy
+  // that drifting fragments are drawn from
   state.snapshot = new OffscreenCanvas(w, h);
   state.snapshotCtx = state.snapshot.getContext('2d');
   _composePerson(state, input.getVideoElement(), maskResult, state.snapshotCtx, w, h, params.softness);
+  state.source = new OffscreenCanvas(w, h);
+  state.source.getContext('2d').drawImage(state.snapshot, 0, 0);
+  state.snapshotCleared = false;
 
-  // Sample mask pixels into particles, bumping the step if there are too many
+  // Tile the silhouette with grid cells, bumping the cell size if there are
+  // too many. Every cell that touches the mask becomes a fragment carrying
+  // its actual image pixels, so the whole body — edges included — leaves as
+  // particles with nothing left behind.
   let step = Math.round(params.density);
-  let maskPixels = getMaskPixels(maskResult, step);
-  while (maskPixels.length > MAX_PARTICLES && step < 16) {
+  let cells = _coveredCells(maskResult, step);
+  while (cells.length > MAX_PARTICLES && step < 16) {
     step++;
-    maskPixels = getMaskPixels(maskResult, step);
+    cells = _coveredCells(maskResult, step);
   }
 
-  const pixels = input.getPixelData();
   const webcamDims = input.getWebcamDimensions();
   const map = _coverMap(webcamDims.width, webcamDims.height, w, h);
-
-  const tileW = (map.drawW / mw) * step;
-  const tileH = (map.drawH / mh) * step;
-  state.punchR = Math.max(tileW, tileH);
-  state.snapshotCleared = false;
-  const tileRadius = Math.max(tileW, tileH) * 0.7;
 
   // Carry the body's recent motion into the dust, gently capped
   const speed = Math.hypot(state.personVel.x, state.personVel.y);
@@ -262,40 +262,79 @@ function _freeze(state, input) {
   const patchScale = 1 / Math.max(1, params.patch);
 
   state.particles = [];
-  for (const mp of maskPixels) {
-    const canvasX = w - (map.offX + (mp.x / mw) * map.drawW);
-    const canvasY = map.offY + (mp.y / mh) * map.drawH;
+  for (const cell of cells) {
+    // Cell bounds in canvas space; the x mapping mirrors, so the cell's
+    // right edge in mask space becomes its left edge on screen
+    const left = w - (map.offX + (cell.x1 / mw) * map.drawW);
+    const right = w - (map.offX + (cell.x0 / mw) * map.drawW);
+    const top = map.offY + (cell.y0 / mh) * map.drawH;
+    const bottom = map.offY + (cell.y1 / mh) * map.drawH;
 
-    // Skip silhouette pixels cropped out by the cover fit
-    if (canvasX < -tileW || canvasX > w + tileW || canvasY < -tileH || canvasY > h + tileH) continue;
+    // Clip to the canvas (cover fit can push cells off-screen)
+    const x0 = clamp(left, 0, w);
+    const x1 = clamp(right, 0, w);
+    const y0 = clamp(top, 0, h);
+    const y1 = clamp(bottom, 0, h);
+    const rectW = x1 - x0;
+    const rectH = y1 - y0;
+    if (rectW < 0.5 || rectH < 0.5) continue;
 
-    const wx = clamp(Math.floor((1 - mp.x / mw) * webcamDims.width), 0, webcamDims.width - 1);
-    const wy = clamp(Math.floor((mp.y / mh) * webcamDims.height), 0, webcamDims.height - 1);
-    const [r, g, b] = getPixelColor(pixels, wx, wy);
+    const cx = x0 + rectW / 2;
+    const cy = y0 + rectH / 2;
 
-    const n = (noise2D(canvasX * patchScale, canvasY * patchScale) + 1) / 2;
+    const n = (noise2D(cx * patchScale, cy * patchScale) + 1) / 2;
     const releaseAt = params.hold + n * params.spread + randomRange(0, params.spread * 0.1);
 
+    // Each fragment shrinks from its full tile down to a dust speck
+    const speck = params.moteSize * randomRange(0.7, 1.4);
+    const moteScale = Math.min(1, speck / Math.max(rectW, rectH));
+
     state.particles.push({
-      x: canvasX,
-      y: canvasY,
+      x: cx,
+      y: cy,
       vx: 0,
       vy: 0,
-      r, g, b,
+      srcX: x0,
+      srcY: y0,
+      rectW,
+      rectH,
+      moteScale,
+      scale: 1,
       released: false,
       dead: false,
       releaseAt,
       age: 0,
       alpha: 1,
-      tileRadius,
-      drawRadius: tileRadius,
-      moteRadius: params.moteSize * randomRange(0.6, 1.4),
       seed: Math.random() * 10,
     });
   }
 
   state.dissolveT = 0;
   state.phase = PHASES.DISSOLVING;
+}
+
+/** Grid cells (in mask space) that contain at least one silhouette pixel */
+function _coveredCells(maskResult, step) {
+  const { data, width, height } = maskResult;
+  const cells = [];
+  for (let y0 = 0; y0 < height; y0 += step) {
+    const y1 = Math.min(y0 + step, height);
+    for (let x0 = 0; x0 < width; x0 += step) {
+      const x1 = Math.min(x0 + step, width);
+      let covered = false;
+      for (let my = y0; my < y1 && !covered; my++) {
+        const row = my * width;
+        for (let mx = x0; mx < x1; mx++) {
+          if (data[row + mx] > 0) {
+            covered = true;
+            break;
+          }
+        }
+      }
+      if (covered) cells.push({ x0, y0, x1, y1 });
+    }
+  }
+  return cells;
 }
 
 function _updateDissolving(state, input, dt) {
@@ -311,7 +350,6 @@ function _updateDissolving(state, input, dt) {
 
   let alive = 0;
   let frozen = 0;
-  const releasedNow = [];
   for (const p of state.particles) {
     if (p.dead) continue;
 
@@ -324,7 +362,10 @@ function _updateDissolving(state, input, dt) {
       p.released = true;
       p.vx = state.frozenVel.x * params.momentum + randomRange(-4, 4);
       p.vy = state.frozenVel.y * params.momentum + randomRange(-4, 4);
-      releasedNow.push(p);
+      // Lift this fragment out of the frozen image. It gets redrawn at the
+      // exact same spot this frame, so the hand-off is invisible. The
+      // half-pixel overlap prevents antialiased seams between neighbors.
+      sctx.clearRect(p.srcX - 0.5, p.srcY - 0.5, p.rectW + 1, p.rectH + 1);
     }
 
     p.age += dt;
@@ -349,33 +390,18 @@ function _updateDissolving(state, input, dt) {
       continue;
     }
 
-    p.alpha = 0.9 * (1 - easeInOut(clamp(lifeT, 0, 1)));
-    // Settle from tile-sized fragment down to a dust mote over the first second
-    const settle = easeOut(clamp(p.age, 0, 1));
-    p.drawRadius = lerp(p.tileRadius, p.moteRadius, settle) * (1 - 0.3 * lifeT);
+    // Full opacity at release (matching the frozen image exactly), then a
+    // slow ease into transparency
+    p.alpha = 1 - easeInOut(clamp(lifeT, 0, 1));
+    // Shrink from full image fragment down to a dust speck over the first
+    // third of its life
+    const shrinkT = clamp(p.age / (params.fade * 0.35), 0, 1);
+    p.scale = lerp(1, p.moteScale, easeInOut(shrinkT));
     alive++;
   }
 
-  // Erase released tiles from the frozen image with feathered stamps of
-  // randomized size: overlapping soft erases crumble the silhouette
-  // irregularly instead of cutting hard rectangular holes
-  if (releasedNow.length > 0 && sctx) {
-    sctx.save();
-    sctx.globalCompositeOperation = 'destination-out';
-    for (const p of releasedNow) {
-      const r = state.punchR * randomRange(1.1, 1.8);
-      const grad = sctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
-      grad.addColorStop(0, 'rgba(0,0,0,1)');
-      grad.addColorStop(0.55, 'rgba(0,0,0,1)');
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      sctx.fillStyle = grad;
-      sctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
-    }
-    sctx.restore();
-  }
-
   // Once every particle has released, wipe the snapshot so no edge
-  // fringe or unsampled slivers linger behind
+  // fringe or antialiased slivers linger behind
   if (frozen === 0 && !state.snapshotCleared && sctx) {
     sctx.clearRect(0, 0, state.snapshot.width, state.snapshot.height);
     state.snapshotCleared = true;
@@ -425,14 +451,19 @@ function _renderDissolving(state, ctx, canvas) {
   if (state.snapshot) {
     ctx.drawImage(state.snapshot, 0, 0);
   }
+  if (!state.source) return;
 
+  // Each fragment is a piece of the frozen image itself, drifting away and
+  // shrinking into a speck
   for (const p of state.particles) {
     if (!p.released || p.dead || p.alpha <= 0.01) continue;
-    ctx.fillStyle = rgbString(p.r, p.g, p.b, p.alpha);
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.drawRadius, 0, Math.PI * 2);
-    ctx.fill();
+    const dw = p.rectW * p.scale;
+    const dh = p.rectH * p.scale;
+    if (dw < 0.2 || dh < 0.2) continue;
+    ctx.globalAlpha = p.alpha;
+    ctx.drawImage(state.source, p.srcX, p.srcY, p.rectW, p.rectH, p.x - dw / 2, p.y - dh / 2, dw, dh);
   }
+  ctx.globalAlpha = 1;
 }
 
 /**
