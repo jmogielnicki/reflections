@@ -8,12 +8,17 @@
  *       { key: 'speed', label: 'Speed', min: 0, max: 10, step: 0.1, value: 2 },
  *       { type: 'button', label: 'Restart', onClick: () => ... },
  *     ],
+ *     presets: [
+ *       { name: 'Calm', values: { speed: 1 } },
+ *     ],
  *   });
- *   panel.params.speed  // live-updated as sliders move
- *   panel.destroy();    // remove from DOM (call in project cleanup)
+ *   panel.params.speed         // live-updated as sliders move
+ *   panel.setParams({...});    // set values programmatically (syncs sliders)
+ *   panel.destroy();           // remove from DOM (call in project cleanup)
  */
-export function createControlPanel({ title = 'Tuning', controls = [], parent = document.body }) {
+export function createControlPanel({ title = 'Tuning', controls = [], presets = [], parent = document.body }) {
   const params = {};
+  const inputs = {};
 
   const panel = document.createElement('div');
   panel.className = 'control-panel';
@@ -33,6 +38,31 @@ export function createControlPanel({ title = 'Tuning', controls = [], parent = d
   const body = document.createElement('div');
   body.className = 'control-panel-body';
   panel.appendChild(body);
+
+  function setParams(values) {
+    for (const [key, v] of Object.entries(values)) {
+      if (!(key in params)) continue;
+      params[key] = v;
+      const input = inputs[key];
+      if (input) {
+        input.slider.value = v;
+        input.valueSpan.textContent = input.format(v);
+      }
+    }
+  }
+
+  if (presets.length > 0) {
+    const presetRow = document.createElement('div');
+    presetRow.className = 'control-presets';
+    for (const preset of presets) {
+      const btn = document.createElement('button');
+      btn.className = 'control-preset-button';
+      btn.textContent = preset.name;
+      btn.addEventListener('click', () => setParams(preset.values));
+      presetRow.appendChild(btn);
+    }
+    body.appendChild(presetRow);
+  }
 
   for (const control of controls) {
     if (control.type === 'button') {
@@ -75,6 +105,8 @@ export function createControlPanel({ title = 'Tuning', controls = [], parent = d
     row.appendChild(labelLine);
     row.appendChild(slider);
     body.appendChild(row);
+
+    inputs[control.key] = { slider, valueSpan, format };
   }
 
   parent.appendChild(panel);
@@ -82,6 +114,7 @@ export function createControlPanel({ title = 'Tuning', controls = [], parent = d
   return {
     params,
     element: panel,
+    setParams,
     destroy() {
       panel.remove();
     },

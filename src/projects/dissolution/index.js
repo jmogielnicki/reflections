@@ -16,6 +16,36 @@ const REST_DURATION = 2.5;           // pause on empty mirror before re-arming
 
 const PHASES = { MIRROR: 0, COUNTDOWN: 1, DISSOLVING: 2, RESTING: 3 };
 
+// Presets only touch the "feel" parameters, leaving countdown, density,
+// and edge blur as the user set them.
+const PRESETS = [
+  {
+    // The tuned defaults: slow patchy erosion, dust hanging in still air
+    name: 'Gentle drift',
+    values: { hold: 0.7, spread: 8, patch: 70, fade: 9, drift: 16, noiseScale: 1.5, noiseSpeed: 0.08, momentum: 0.6, buoyancy: 5, damping: 0.7, moteSize: 1.4 },
+  },
+  {
+    // Heavy motes sink and settle like ash after a fire
+    name: 'Ash',
+    values: { hold: 1.2, spread: 12, patch: 110, fade: 13, drift: 9, noiseScale: 1.0, noiseSpeed: 0.04, momentum: 0.3, buoyancy: -8, damping: 1.1, moteSize: 1.2 },
+  },
+  {
+    // Everything rises — smoke leaving a body
+    name: 'Updraft',
+    values: { hold: 0.5, spread: 6, patch: 50, fade: 10, drift: 12, noiseScale: 1.2, noiseSpeed: 0.1, momentum: 0.4, buoyancy: 18, damping: 0.5, moteSize: 1.6 },
+  },
+  {
+    // Fast, windy, strongly carried by your last movement
+    name: 'Swept away',
+    values: { hold: 0.3, spread: 4, patch: 35, fade: 5.5, drift: 48, noiseScale: 3, noiseSpeed: 0.22, momentum: 1.5, buoyancy: 2, damping: 0.4, moteSize: 1.0 },
+  },
+  {
+    // Almost imperceptibly slow; large patches linger like a fading memory
+    name: 'Haunting',
+    values: { hold: 1.5, spread: 18, patch: 160, fade: 20, drift: 6, noiseScale: 0.7, noiseSpeed: 0.03, momentum: 0.15, buoyancy: 3, damping: 0.6, moteSize: 1.8 },
+  },
+];
+
 export default {
   id: 'dissolution',
   name: 'Dissolution',
@@ -81,6 +111,7 @@ export default {
         { key: 'softness', label: 'Edge blur (px)', min: 0, max: 6, step: 0.5, value: 1.5 },
         { type: 'button', label: 'Restart', onClick: () => _reset(state) },
       ],
+      presets: PRESETS,
     });
     state.params = state.panel.params;
 
