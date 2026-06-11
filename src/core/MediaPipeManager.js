@@ -44,8 +44,11 @@ export class MediaPipeManager {
             delegate: 'GPU',
           },
           runningMode: 'VIDEO',
-          outputCategoryMask: true,
-          outputConfidenceMasks: false,
+          // Confidence masks have unambiguous semantics (per-pixel person
+          // probability); category mask values are inconsistent across
+          // devices/delegates (see mediapipe#4723, #6155).
+          outputCategoryMask: false,
+          outputConfidenceMasks: true,
         });
         break;
 
@@ -100,9 +103,11 @@ export class MediaPipeManager {
     if (this._segmenter) {
       try {
         const segResult = this._segmenter.segmentForVideo(video, timestampMs);
-        if (segResult && segResult.categoryMask) {
+        const confidenceMasks = segResult && segResult.confidenceMasks;
+        if (confidenceMasks && confidenceMasks.length > 0) {
+          // Selfie segmenter labels are [background, person]; person is last
           results.segmentation = {
-            mask: segResult.categoryMask,
+            mask: confidenceMasks[confidenceMasks.length - 1],
             width: video.videoWidth,
             height: video.videoHeight,
           };

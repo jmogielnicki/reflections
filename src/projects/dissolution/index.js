@@ -46,6 +46,7 @@ export default {
       particles: [],
       snapshot: null,
       snapshotCtx: null,
+      snapshotCleared: false,
       punchW: 0,
       punchH: 0,
 
@@ -140,6 +141,7 @@ function _reset(state) {
   state.particles.length = 0;
   state.snapshot = null;
   state.snapshotCtx = null;
+  state.snapshotCleared = false;
   state.presenceFrames = 0;
   state.absenceFrames = 0;
   state.prevCenter = null;
@@ -232,8 +234,11 @@ function _freeze(state, input) {
 
   const tileW = (map.drawW / mw) * step;
   const tileH = (map.drawH / mh) * step;
-  state.punchW = tileW * 1.3;
-  state.punchH = tileH * 1.3;
+  // Punch well past the tile: edge pixels between grid samples and the
+  // blurred mask fringe must be erased by a neighboring particle's release
+  state.punchW = tileW * 2.6;
+  state.punchH = tileH * 2.6;
+  state.snapshotCleared = false;
   const tileRadius = Math.max(tileW, tileH) * 0.7;
 
   // Carry the body's recent motion into the dust, gently capped
@@ -296,12 +301,14 @@ function _updateDissolving(state, input, dt) {
   const dampF = Math.exp(-params.damping * dt);
 
   let alive = 0;
+  let frozen = 0;
   for (const p of state.particles) {
     if (p.dead) continue;
 
     if (!p.released) {
       if (t < p.releaseAt) {
         alive++;
+        frozen++;
         continue;
       }
       p.released = true;
@@ -338,6 +345,13 @@ function _updateDissolving(state, input, dt) {
     const settle = easeOut(clamp(p.age, 0, 1));
     p.drawRadius = lerp(p.tileRadius, p.moteRadius, settle) * (1 - 0.3 * lifeT);
     alive++;
+  }
+
+  // Once every particle has released, wipe the snapshot so no edge
+  // fringe or unsampled slivers linger behind
+  if (frozen === 0 && !state.snapshotCleared && sctx) {
+    sctx.clearRect(0, 0, state.snapshot.width, state.snapshot.height);
+    state.snapshotCleared = true;
   }
 
   if (alive === 0) {
