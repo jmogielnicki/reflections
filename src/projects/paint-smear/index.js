@@ -3,15 +3,31 @@ import { noise2D } from '../../utils/noise.js';
 import { hslToRgb } from '../../utils/color.js';
 import { lerp, clamp } from '../../utils/math.js';
 
-const RETRACT_SPEED = 0.015;
-const SMEAR_STRENGTH = 12;
-const COLOR_BOOST = 1.3;
-
 export default {
   id: 'paint-smear',
   name: 'Paint Smear',
   description: 'Your silhouette smears colorful paint across the canvas. Step away and it slowly retracts.',
   mediapipe: ['segmentation'],
+  params: {
+    retractSpeed:  { value: 0.015, min: 0.001, max: 0.1,  step: 0.001, label: 'Retract Speed' },
+    smearStrength: { value: 12,    min: 2,     max: 40,   step: 1,     label: 'Smear Strength' },
+    colorBoost:    { value: 1.3,   min: 1.0,   max: 2.0,  step: 0.05,  label: 'Color Boost' },
+    paintNoiseFreq:{ value: 0.004, min: 0.001, max: 0.02, step: 0.001, label: 'Paint Noise Freq' },
+  },
+  presets: [
+    {
+      name: 'Thick Oil',
+      values: { retractSpeed: 0.005, smearStrength: 35, colorBoost: 1.8, paintNoiseFreq: 0.003 },
+    },
+    {
+      name: 'Watercolor Wash',
+      values: { retractSpeed: 0.06, smearStrength: 5, colorBoost: 1.05, paintNoiseFreq: 0.008 },
+    },
+    {
+      name: 'Neon Drag',
+      values: { retractSpeed: 0.002, smearStrength: 25, colorBoost: 2.0, paintNoiseFreq: 0.015 },
+    },
+  ],
 
   init(ctx, canvas) {
     const w = canvas.width;
@@ -21,7 +37,7 @@ export default {
     const paintCanvas = new OffscreenCanvas(w, h);
     const paintCtx = paintCanvas.getContext('2d');
 
-    _generatePaint(paintCtx, w, h);
+    _generatePaint(paintCtx, w, h, 0.004);
 
     // Store the original for retraction
     const originalData = paintCtx.getImageData(0, 0, w, h);
@@ -40,6 +56,7 @@ export default {
 
   update(state, input, dt) {
     if (!input.segmentation) return;
+    const P = state.params;
 
     const maskResult = extractMask(input.segmentation);
     const { data: maskData, width: mw, height: mh } = maskResult;
@@ -54,8 +71,8 @@ export default {
     if (center) {
       // Mirror the x position since webcam is mirrored
       const cx = 1 - center.x;
-      dx = (cx - state.prevCenterX) * SMEAR_STRENGTH;
-      dy = (center.y - state.prevCenterY) * SMEAR_STRENGTH;
+      dx = (cx - state.prevCenterX) * P.smearStrength;
+      dy = (center.y - state.prevCenterY) * P.smearStrength;
       state.prevCenterX = lerp(state.prevCenterX, cx, 0.3);
       state.prevCenterY = lerp(state.prevCenterY, center.y, 0.3);
     }
@@ -86,9 +103,9 @@ export default {
             const si = (srcY * pw + srcX) * 4;
 
             // Copy source pixel with color boost
-            pd[di] = clamp(Math.floor(tempData[si] * COLOR_BOOST), 0, 255);
-            pd[di + 1] = clamp(Math.floor(tempData[si + 1] * COLOR_BOOST), 0, 255);
-            pd[di + 2] = clamp(Math.floor(tempData[si + 2] * COLOR_BOOST), 0, 255);
+            pd[di] = clamp(Math.floor(tempData[si] * P.colorBoost), 0, 255);
+            pd[di + 1] = clamp(Math.floor(tempData[si + 1] * P.colorBoost), 0, 255);
+            pd[di + 2] = clamp(Math.floor(tempData[si + 2] * P.colorBoost), 0, 255);
             pd[di + 3] = 255;
 
             // Also fill adjacent pixels for coverage
@@ -114,9 +131,9 @@ export default {
 
         if (!personHere) {
           const i = (py * pw + px) * 4;
-          pd[i] = Math.round(lerp(pd[i], origData[i], RETRACT_SPEED));
-          pd[i + 1] = Math.round(lerp(pd[i + 1], origData[i + 1], RETRACT_SPEED));
-          pd[i + 2] = Math.round(lerp(pd[i + 2], origData[i + 2], RETRACT_SPEED));
+          pd[i] = Math.round(lerp(pd[i], origData[i], P.retractSpeed));
+          pd[i + 1] = Math.round(lerp(pd[i + 1], origData[i + 1], P.retractSpeed));
+          pd[i + 2] = Math.round(lerp(pd[i + 2], origData[i + 2], P.retractSpeed));
 
           // Fill adjacent
           if (px + 1 < pw) {
@@ -146,7 +163,8 @@ export default {
     // Regenerate paint at new size
     state.paintCanvas.width = width;
     state.paintCanvas.height = height;
-    _generatePaint(state.paintCtx, width, height);
+    const freq = state.params ? state.params.paintNoiseFreq : 0.004;
+    _generatePaint(state.paintCtx, width, height, freq);
     state.originalData = state.paintCtx.getImageData(0, 0, width, height);
   },
 
@@ -155,11 +173,10 @@ export default {
   },
 };
 
-function _generatePaint(ctx, w, h) {
+function _generatePaint(ctx, w, h, freq = 0.004) {
   // Create a colorful paint blob using noise
   const imageData = ctx.createImageData(w, h);
   const d = imageData.data;
-  const freq = 0.004;
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
