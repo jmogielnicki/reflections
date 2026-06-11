@@ -21,6 +21,13 @@ export const projects = [
     load: () => import('./paint-smear/index.js').then(m => m.default),
   },
   {
+    id: 'dissolution',
+    name: 'Dissolution',
+    description: 'Gaze at your reflection; after a countdown it freezes and gently dissolves into drifting dust.',
+    mediapipe: ['segmentation'],
+    load: () => import('./dissolution/index.js').then(m => m.default),
+  },
+  {
     id: 'implode-explode',
     name: 'Implode / Explode',
     description: 'Particles rush in from off-screen to form your silhouette, hold, then burst apart.',
