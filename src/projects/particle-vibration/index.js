@@ -3,25 +3,41 @@ import { sampleGrid } from '../../utils/pixels.js';
 import { hslToRgb, rgbString } from '../../utils/color.js';
 import { lerp, randomRange } from '../../utils/math.js';
 
-const PARTICLE_COUNT = 4000;
 const GRID_COLS = 80;
 const GRID_ROWS = 60;
-const MAX_VIBRATION = 25;
-const SPRING_STRENGTH = 0.08;
-const DAMPING = 0.92;
-const NOISE_FREQ = 0.008;
-const NOISE_SPEED = 1.5;
-const TRAIL_FADE = 0.08;
 
 export default {
   id: 'particle-vibration',
   name: 'Particle Vibration',
   description: 'Particles float in calm areas and vibrate intensely in darker regions of your image.',
   mediapipe: [],
+  params: {
+    particleCount:  { value: 4000,  min: 500,   max: 10000, step: 100,   label: 'Particle Count' },
+    maxVibration:   { value: 25,    min: 5,     max: 100,   step: 1,     label: 'Max Vibration' },
+    springStrength: { value: 0.08,  min: 0.01,  max: 0.3,   step: 0.01,  label: 'Spring Strength' },
+    damping:        { value: 0.92,  min: 0.8,   max: 0.99,  step: 0.01,  label: 'Damping' },
+    noiseFreq:      { value: 0.008, min: 0.001, max: 0.05,  step: 0.001, label: 'Noise Frequency' },
+    noiseSpeed:     { value: 1.5,   min: 0.1,   max: 5,     step: 0.1,   label: 'Noise Speed' },
+    trailFade:      { value: 0.08,  min: 0.01,  max: 0.3,   step: 0.01,  label: 'Trail Fade' },
+  },
+  presets: [
+    {
+      name: 'Gentle Drift',
+      values: { maxVibration: 8, springStrength: 0.03, damping: 0.97, noiseSpeed: 0.5, trailFade: 0.03 },
+    },
+    {
+      name: 'Electric Storm',
+      values: { maxVibration: 80, noiseFreq: 0.03, noiseSpeed: 4, trailFade: 0.15 },
+    },
+    {
+      name: 'Dense Swarm',
+      values: { particleCount: 9000, maxVibration: 15, springStrength: 0.15, damping: 0.88, trailFade: 0.04 },
+    },
+  ],
 
   init(ctx, canvas) {
     const particles = [];
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
+    for (let i = 0; i < 4000; i++) {
       const homeX = randomRange(0, canvas.width);
       const homeY = randomRange(0, canvas.height);
       particles.push({
@@ -39,29 +55,41 @@ export default {
   },
 
   update(state, input, dt) {
+    const P = state.params;
     const grid = input.getBrightnessGrid(GRID_COLS, GRID_ROWS);
     const { width, height } = input.canvas;
     const elapsed = input.time.elapsed;
+
+    // Adjust particle count dynamically
+    const targetCount = Math.round(P.particleCount);
+    while (state.particles.length < targetCount) {
+      const homeX = randomRange(0, width);
+      const homeY = randomRange(0, height);
+      state.particles.push({ x: homeX, y: homeY, homeX, homeY, vx: 0, vy: 0, size: randomRange(1.2, 3) });
+    }
+    if (state.particles.length > targetCount) {
+      state.particles.length = targetCount;
+    }
 
     for (const p of state.particles) {
       const brightness = sampleGrid(grid, p.homeX, p.homeY, width, height);
       const darkness = 1 - brightness;
 
       // Vibration from noise, scaled by darkness
-      const vibAmount = darkness * MAX_VIBRATION;
-      const nx = noise3D(p.homeX * NOISE_FREQ, p.homeY * NOISE_FREQ, elapsed * NOISE_SPEED);
-      const ny = noise3D(p.homeX * NOISE_FREQ + 500, p.homeY * NOISE_FREQ + 500, elapsed * NOISE_SPEED);
+      const vibAmount = darkness * P.maxVibration;
+      const nx = noise3D(p.homeX * P.noiseFreq, p.homeY * P.noiseFreq, elapsed * P.noiseSpeed);
+      const ny = noise3D(p.homeX * P.noiseFreq + 500, p.homeY * P.noiseFreq + 500, elapsed * P.noiseSpeed);
       p.vx += nx * vibAmount * dt * 60;
       p.vy += ny * vibAmount * dt * 60;
 
       // Spring back to home
-      const springForce = lerp(SPRING_STRENGTH, SPRING_STRENGTH * 0.2, darkness);
+      const springForce = lerp(P.springStrength, P.springStrength * 0.2, darkness);
       p.vx += (p.homeX - p.x) * springForce;
       p.vy += (p.homeY - p.y) * springForce;
 
       // Damping
-      p.vx *= DAMPING;
-      p.vy *= DAMPING;
+      p.vx *= P.damping;
+      p.vy *= P.damping;
 
       // Integrate
       p.x += p.vx * dt * 60;
@@ -74,7 +102,7 @@ export default {
 
   render(state, input, ctx, canvas) {
     // Fade trail
-    ctx.fillStyle = `rgba(0, 0, 0, ${TRAIL_FADE})`;
+    ctx.fillStyle = `rgba(0, 0, 0, ${state.params.trailFade})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Draw particles
