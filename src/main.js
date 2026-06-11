@@ -13,6 +13,9 @@ const debugPanelEl = document.getElementById('debug-panel');
 let runner = null;
 let fpsInterval = null;
 const debugPanel = new DebugPanel(debugPanelEl);
+debugPanel.onRestart(() => {
+  if (runner) runner.restartProject();
+});
 
 // --- URL param helpers ---
 
@@ -162,6 +165,9 @@ backBtn.addEventListener('click', () => {
 window.addEventListener('keydown', (e) => {
   if (e.key === 'd' || e.key === 'D') {
     if (runner) debugPanel.toggle();
+  }
+  if (e.key === 'r' || e.key === 'R') {
+    if (runner) runner.restartProject();
   }
 });
 

@@ -76,6 +76,27 @@ export class ProjectRunner {
     }
   }
 
+  /** Re-initialize the active project from scratch, preserving live params */
+  restartProject() {
+    if (!this._project || !this._projectState) return;
+
+    if (this._project.cleanup) {
+      this._project.cleanup(this._projectState);
+    }
+
+    const canvas = this.canvasManager.canvas;
+    // Reuse the same params object: the DebugPanel holds a reference to it
+    const params = this._projectState.params;
+    this._projectState = this._project.init(this.canvasManager.ctx, canvas);
+    if (params) {
+      this._projectState.params = params;
+    }
+
+    if (this._project.resize) {
+      this._project.resize(this._projectState, canvas.width, canvas.height);
+    }
+  }
+
   /** Get the active project's param descriptors (for DebugPanel) */
   getParamDescriptors() {
     return this._project ? this._project.params : null;

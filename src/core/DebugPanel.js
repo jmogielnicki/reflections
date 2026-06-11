@@ -8,6 +8,7 @@ export class DebugPanel {
     this._rows = {};
     this._presetSelect = null;
     this._onParamsChange = null; // callback when params change (for URL sync)
+    this._onRestart = null;      // callback to restart the active project
   }
 
   /** Load param descriptors, presets, and live state.params for the active project */
@@ -21,6 +22,11 @@ export class DebugPanel {
   /** Set callback for when params change (used for URL updates) */
   onParamsChange(fn) {
     this._onParamsChange = fn;
+  }
+
+  /** Set callback for the Restart button */
+  onRestart(fn) {
+    this._onRestart = fn;
   }
 
   toggle() {
@@ -80,8 +86,17 @@ export class DebugPanel {
 
     const hint = document.createElement('div');
     hint.className = 'debug-hint';
-    hint.textContent = 'Press D to close';
+    hint.textContent = 'D toggles panel · R restarts';
     this.container.appendChild(hint);
+
+    // Restart button — re-runs the experience from the beginning
+    const restartBtn = document.createElement('button');
+    restartBtn.className = 'debug-restart-btn';
+    restartBtn.textContent = 'Restart Experience';
+    restartBtn.addEventListener('click', () => {
+      if (this._onRestart) this._onRestart();
+    });
+    this.container.appendChild(restartBtn);
 
     // Preset row: dropdown + action buttons
     if (this._presets.length > 0) {

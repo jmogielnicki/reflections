@@ -86,8 +86,7 @@ export default {
       snapshot: null,
       snapshotCtx: null,
       snapshotCleared: false,
-      punchW: 0,
-      punchH: 0,
+      punchR: 0,
 
       // Reusable compositing layers
       maskResult: null,
@@ -97,12 +96,6 @@ export default {
       personLayer: null,
       personCtx: null,
     };
-
-    // R restarts the cycle — handy while tuning params in the debug panel
-    state._onKeyDown = (e) => {
-      if (e.key === 'r' || e.key === 'R') _reset(state);
-    };
-    window.addEventListener('keydown', state._onKeyDown);
 
     return state;
   },
@@ -148,7 +141,6 @@ export default {
   },
 
   cleanup(state) {
-    window.removeEventListener('keydown', state._onKeyDown);
     state.particles.length = 0;
     state.snapshot = null;
     state.maskLayer = null;
@@ -254,10 +246,7 @@ function _freeze(state, input) {
 
   const tileW = (map.drawW / mw) * step;
   const tileH = (map.drawH / mh) * step;
-  // Punch well past the tile: edge pixels between grid samples and the
-  // blurred mask fringe must be erased by a neighboring particle's release
-  state.punchW = tileW * 2.6;
-  state.punchH = tileH * 2.6;
+  state.punchR = Math.max(tileW, tileH);
   state.snapshotCleared = false;
   const tileRadius = Math.max(tileW, tileH) * 0.7;
 
@@ -322,6 +311,7 @@ function _updateDissolving(state, input, dt) {
 
   let alive = 0;
   let frozen = 0;
+  const releasedNow = [];
   for (const p of state.particles) {
     if (p.dead) continue;
 
@@ -334,8 +324,7 @@ function _updateDissolving(state, input, dt) {
       p.released = true;
       p.vx = state.frozenVel.x * params.momentum + randomRange(-4, 4);
       p.vy = state.frozenVel.y * params.momentum + randomRange(-4, 4);
-      // Erase this particle's tile from the frozen image
-      sctx.clearRect(p.x - state.punchW / 2, p.y - state.punchH / 2, state.punchW, state.punchH);
+      releasedNow.push(p);
     }
 
     p.age += dt;
@@ -365,6 +354,24 @@ function _updateDissolving(state, input, dt) {
     const settle = easeOut(clamp(p.age, 0, 1));
     p.drawRadius = lerp(p.tileRadius, p.moteRadius, settle) * (1 - 0.3 * lifeT);
     alive++;
+  }
+
+  // Erase released tiles from the frozen image with feathered stamps of
+  // randomized size: overlapping soft erases crumble the silhouette
+  // irregularly instead of cutting hard rectangular holes
+  if (releasedNow.length > 0 && sctx) {
+    sctx.save();
+    sctx.globalCompositeOperation = 'destination-out';
+    for (const p of releasedNow) {
+      const r = state.punchR * randomRange(1.1, 1.8);
+      const grad = sctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      grad.addColorStop(0, 'rgba(0,0,0,1)');
+      grad.addColorStop(0.55, 'rgba(0,0,0,1)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      sctx.fillStyle = grad;
+      sctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
+    }
+    sctx.restore();
   }
 
   // Once every particle has released, wipe the snapshot so no edge
